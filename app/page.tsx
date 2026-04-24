@@ -14,8 +14,6 @@ type Module =
   | "imprimir"
   | "admin";
 
-type Role = "admin" | "inventario" | "produccion" | "ventas" | "lectura";
-
 export default function Home() {
   const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
@@ -45,7 +43,6 @@ export default function Home() {
 
   const [nuevoMaterial, setNuevoMaterial] = useState({
     nombre: "",
-    categoria: "",
     category_id: "",
     unidad: "unidad",
     stock: "",
@@ -67,14 +64,17 @@ export default function Home() {
   const [corte, setCorte] = useState({
     sheetW: "2440",
     sheetH: "1220",
+    kerf: "3",
     pieceName: "",
     pieceW: "",
     pieceH: "",
     qty: "1",
+    rotate: true,
   });
 
   const [piezas, setPiezas] = useState<any[]>([]);
   const [layoutCorte, setLayoutCorte] = useState<any[]>([]);
+  const [imagenCorte, setImagenCorte] = useState<string | null>(null);
 
   useEffect(() => {
     init();
@@ -96,10 +96,7 @@ export default function Home() {
       password: login.password,
     });
 
-    if (error) {
-      alert("Usuario o contraseña incorrectos");
-      return;
-    }
+    if (error) return alert("Usuario o contraseña incorrectos");
 
     setSession(data.session);
     await cargarPerfil(data.session?.user?.id);
@@ -123,12 +120,11 @@ export default function Home() {
   }
 
   function puede(area: string) {
-    const role: Role = profile?.role || "lectura";
-
+    const role = profile?.role || "lectura";
     if (role === "admin") return true;
+    if (area === "ventas") return role === "ventas";
     if (area === "inventario") return role === "inventario";
     if (area === "produccion") return role === "produccion";
-    if (area === "ventas") return role === "ventas";
     return false;
   }
 
@@ -176,6 +172,7 @@ export default function Home() {
   }
 
   async function cargarUsuarios() {
+    if (profile?.role !== "admin") return;
     const { data } = await supabase.from("user_profiles").select("*").order("created_at", { ascending: false });
     setUsuarios(data || []);
   }
@@ -192,7 +189,7 @@ export default function Home() {
   const terminadas = ordenes.filter((o) => o.estado === "terminada").length;
 
   async function crearCliente() {
-    if (!puede("ventas") && !puede("admin")) return alert("No tienes permiso");
+    if (!puede("ventas")) return alert("No tienes permiso");
     if (!nuevoCliente.nombre.trim()) return alert("Escribe el nombre");
 
     await supabase.from("clientes").insert({
@@ -206,7 +203,7 @@ export default function Home() {
   }
 
   async function crearOrden() {
-    if (!puede("ventas") && !puede("admin")) return alert("No tienes permiso");
+    if (!puede("ventas")) return alert("No tienes permiso");
 
     const cliente = clientes.find((c) => c.id === nuevaOrden.cliente_id);
     if (!cliente) return alert("Selecciona cliente");
@@ -224,15 +221,13 @@ export default function Home() {
   }
 
   async function cambiarEstadoOrden(id: string, estado: string) {
-    if (!puede("produccion") && !puede("admin")) return alert("No tienes permiso");
-
+    if (!puede("produccion")) return alert("No tienes permiso");
     await supabase.from("ordenes").update({ estado }).eq("id", id);
     await cargarOrdenes();
   }
 
   async function crearCategoria() {
-    if (!puede("admin")) return alert("Solo administrador");
-
+    if (profile?.role !== "admin") return alert("Solo administrador");
     if (!nuevaCategoria.name.trim()) return alert("Escribe categoría");
 
     await supabase.from("inventory_categories").insert({
@@ -245,7 +240,7 @@ export default function Home() {
   }
 
   async function agregarMaterial() {
-    if (!puede("inventario") && !puede("admin")) return alert("No tienes permiso");
+    if (!puede("inventario")) return alert("No tienes permiso");
     if (!nuevoMaterial.nombre.trim()) return alert("Escribe material");
     if (!nuevoMaterial.category_id) return alert("Selecciona categoría");
 
@@ -262,7 +257,6 @@ export default function Home() {
 
     setNuevoMaterial({
       nombre: "",
-      categoria: "",
       category_id: "",
       unidad: "unidad",
       stock: "",
@@ -287,7 +281,7 @@ export default function Home() {
   }
 
   async function ajustarStock(item: any, tipo: "entrada" | "salida") {
-    if (!puede("inventario") && !puede("admin")) return alert("No tienes permiso");
+    if (!puede("inventario")) return alert("No tienes permiso");
 
     const valor = prompt(tipo === "entrada" ? "Cantidad que entra:" : "Cantidad que sale:");
     if (!valor) return;
@@ -315,7 +309,7 @@ export default function Home() {
   }
 
   async function registrarProduccion() {
-    if (!puede("produccion") && !puede("admin")) return alert("No tienes permiso");
+    if (!puede("produccion")) return alert("No tienes permiso");
 
     const orden = ordenes.find((o) => o.id === produccion.orden_id);
     const item = inventario.find((i) => i.id === produccion.item_id);
@@ -357,15 +351,13 @@ export default function Home() {
   }
 
   async function cambiarRolUsuario(id: string, role: string) {
-    if (!puede("admin")) return alert("Solo administrador");
-
+    if (profile?.role !== "admin") return;
     await supabase.from("user_profiles").update({ role }).eq("id", id);
     await cargarUsuarios();
   }
 
   async function cambiarEstadoUsuario(id: string, is_active: boolean) {
-    if (!puede("admin")) return alert("Solo administrador");
-
+    if (profile?.role !== "admin") return;
     await supabase.from("user_profiles").update({ is_active }).eq("id", id);
     await cargarUsuarios();
   }
@@ -392,22 +384,34 @@ export default function Home() {
     setCorte({ ...corte, pieceName: "", pieceW: "", pieceH: "", qty: "1" });
   }
 
+  function limpiarPiezas() {
+    setPiezas([]);
+    setLayoutCorte([]);
+  }
+
   function optimizarCorte() {
     const sheetW = Number(corte.sheetW);
     const sheetH = Number(corte.sheetH);
+    const kerf = Number(corte.kerf || 0);
 
     let x = 0;
     let y = 0;
     let rowH = 0;
     let sheet = 1;
 
-    const sorted = [...piezas].sort((a, b) => b.h - a.h);
+    const sorted = [...piezas].sort((a, b) => Math.max(b.w, b.h) - Math.max(a.w, a.h));
     const result: any[] = [];
 
-    for (const p of sorted) {
+    for (const raw of sorted) {
+      let p = { ...raw };
+
+      if (corte.rotate && p.w > p.h && p.w > sheetW - x && p.h <= sheetW - x) {
+        p = { ...p, w: raw.h, h: raw.w, rotated: true };
+      }
+
       if (x + p.w > sheetW) {
         x = 0;
-        y += rowH;
+        y += rowH + kerf;
         rowH = 0;
       }
 
@@ -425,11 +429,17 @@ export default function Home() {
         sheet,
       });
 
-      x += p.w;
+      x += p.w + kerf;
       rowH = Math.max(rowH, p.h);
     }
 
     setLayoutCorte(result);
+  }
+
+  function cargarImagen(e: any) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImagenCorte(URL.createObjectURL(file));
   }
 
   function imprimir() {
@@ -443,32 +453,17 @@ export default function Home() {
           <h1>RD WOOD</h1>
           <p>Corte Visual Pro Industrial</p>
 
-          <input
-            style={styles.input}
-            placeholder="Email"
-            value={login.email}
-            onChange={(e) => setLogin({ ...login, email: e.target.value })}
-          />
+          <input style={styles.input} placeholder="Email" value={login.email} onChange={(e) => setLogin({ ...login, email: e.target.value })} />
+          <input style={styles.input} type="password" placeholder="Contraseña" value={login.password} onChange={(e) => setLogin({ ...login, password: e.target.value })} />
 
-          <input
-            style={styles.input}
-            type="password"
-            placeholder="Contraseña"
-            value={login.password}
-            onChange={(e) => setLogin({ ...login, password: e.target.value })}
-          />
-
-          <button style={styles.primaryButton} onClick={loginUser}>
-            Entrar
-          </button>
+          <button style={styles.primaryButton} onClick={loginUser}>Entrar</button>
         </div>
       </main>
     );
   }
 
   const itemProduccion = inventario.find((i) => i.id === produccion.item_id);
-  const costoProduccion =
-    Number(produccion.cantidad || 0) * Number(itemProduccion?.costo_unitario || 0);
+  const costoProduccion = Number(produccion.cantidad || 0) * Number(itemProduccion?.costo_unitario || 0);
 
   return (
     <main style={styles.app}>
@@ -502,7 +497,7 @@ export default function Home() {
         <header style={styles.header} className="no-print">
           <div>
             <h2 style={styles.pageTitle}>{activeModule.toUpperCase()}</h2>
-            <p style={styles.pageSubtitle}>Sistema profesional con roles, inventario y producción.</p>
+            <p style={styles.pageSubtitle}>Sistema profesional con roles, inventario, producción y corte visual.</p>
           </div>
 
           <button style={styles.refreshButton} onClick={cargarTodo}>
@@ -511,18 +506,16 @@ export default function Home() {
         </header>
 
         {activeModule === "dashboard" && (
-          <>
-            <div style={styles.cardsGrid}>
-              <StatCard title="Clientes" value={clientes.length} />
-              <StatCard title="Órdenes" value={ordenes.length} />
-              <StatCard title="Pendientes" value={pendientes} />
-              <StatCard title="Producción" value={enProduccion} />
-              <StatCard title="Terminadas" value={terminadas} />
-              <StatCard title="Materiales" value={inventario.length} />
-              <StatCard title="Valor inventario" value={`RD$ ${valorInventario.toLocaleString("es-DO")}`} />
-              <StatCard title="Stock bajo" value={stockBajo.length} />
-            </div>
-          </>
+          <div style={styles.cardsGrid}>
+            <StatCard title="Clientes" value={clientes.length} />
+            <StatCard title="Órdenes" value={ordenes.length} />
+            <StatCard title="Pendientes" value={pendientes} />
+            <StatCard title="Producción" value={enProduccion} />
+            <StatCard title="Terminadas" value={terminadas} />
+            <StatCard title="Materiales" value={inventario.length} />
+            <StatCard title="Valor inventario" value={`RD$ ${valorInventario.toLocaleString("es-DO")}`} />
+            <StatCard title="Stock bajo" value={stockBajo.length} />
+          </div>
         )}
 
         {activeModule === "clientes" && (
@@ -533,7 +526,7 @@ export default function Home() {
                 <input style={styles.input} placeholder="Teléfono" value={nuevoCliente.telefono} onChange={(e) => setNuevoCliente({ ...nuevoCliente, telefono: e.target.value })} />
                 <input style={styles.input} placeholder="Email" value={nuevoCliente.email} onChange={(e) => setNuevoCliente({ ...nuevoCliente, email: e.target.value })} />
               </div>
-              {(puede("ventas") || puede("admin")) && <button style={styles.primaryButton} onClick={crearCliente}>Guardar cliente</button>}
+              {puede("ventas") && <button style={styles.primaryButton} onClick={crearCliente}>Guardar cliente</button>}
             </Panel>
 
             <Panel title="Clientes registrados">
@@ -550,49 +543,22 @@ export default function Home() {
                   <option value="">Seleccionar cliente</option>
                   {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                 </select>
-
                 <input style={styles.input} placeholder="Proyecto" value={nuevaOrden.proyecto} onChange={(e) => setNuevaOrden({ ...nuevaOrden, proyecto: e.target.value })} />
                 <input style={styles.input} type="number" placeholder="Total RD$" value={nuevaOrden.total} onChange={(e) => setNuevaOrden({ ...nuevaOrden, total: e.target.value })} />
               </div>
-
-              {(puede("ventas") || puede("admin")) && <button style={styles.primaryButton} onClick={crearOrden}>Crear orden</button>}
+              {puede("ventas") && <button style={styles.primaryButton} onClick={crearOrden}>Crear orden</button>}
             </Panel>
 
             <Panel title="Órdenes">
-              <div style={styles.tableWrap}>
-                <table style={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>Cliente</th>
-                      <th>Proyecto</th>
-                      <th>Estado</th>
-                      <th>Total</th>
-                      <th>Acción</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ordenes.map((o) => (
-                      <tr key={o.id}>
-                        <td>{o.cliente_nombre}</td>
-                        <td>{o.proyecto}</td>
-                        <td>{o.estado}</td>
-                        <td>RD$ {Number(o.total || 0).toLocaleString("es-DO")}</td>
-                        <td>
-                          {(puede("produccion") || puede("admin")) && (
-                            <select style={styles.inputSmall} value={o.estado || "pendiente"} onChange={(e) => cambiarEstadoOrden(o.id, e.target.value)}>
-                              <option value="pendiente">Pendiente</option>
-                              <option value="produccion">Producción</option>
-                              <option value="terminada">Terminada</option>
-                              <option value="entregada">Entregada</option>
-                              <option value="cancelada">Cancelada</option>
-                            </select>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <Table
+                headers={["Cliente", "Proyecto", "Estado", "Total"]}
+                rows={ordenes.map((o) => [
+                  o.cliente_nombre || "-",
+                  o.proyecto || "-",
+                  o.estado || "-",
+                  `RD$ ${Number(o.total || 0).toLocaleString("es-DO")}`,
+                ])}
+              />
             </Panel>
           </>
         )}
@@ -612,8 +578,7 @@ export default function Home() {
                 <input style={styles.input} type="number" placeholder="Stock" value={nuevoMaterial.stock} onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, stock: e.target.value })} />
                 <input style={styles.input} type="number" placeholder="Costo unitario" value={nuevoMaterial.costo_unitario} onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, costo_unitario: e.target.value })} />
               </div>
-
-              {(puede("inventario") || puede("admin")) && <button style={styles.primaryButton} onClick={agregarMaterial}>Agregar material</button>}
+              {puede("inventario") && <button style={styles.primaryButton} onClick={agregarMaterial}>Agregar material</button>}
             </Panel>
 
             <Panel title="Inventario">
@@ -636,7 +601,7 @@ export default function Home() {
                         <td>{item.stock || 0} {item.unidad || ""}</td>
                         <td>RD$ {Number(item.costo_unitario || 0).toLocaleString("es-DO")}</td>
                         <td>
-                          {(puede("inventario") || puede("admin")) && (
+                          {puede("inventario") && (
                             <>
                               <button style={styles.smallGreenButton} onClick={() => ajustarStock(item, "entrada")}>Entrada</button>
                               <button style={styles.smallRedButton} onClick={() => ajustarStock(item, "salida")}>Salida</button>
@@ -674,7 +639,7 @@ export default function Home() {
               <span>RD$ {costoProduccion.toLocaleString("es-DO")}</span>
             </div>
 
-            {(puede("produccion") || puede("admin")) && <button style={styles.primaryButton} onClick={registrarProduccion}>Registrar producción</button>}
+            {puede("produccion") && <button style={styles.primaryButton} onClick={registrarProduccion}>Registrar producción</button>}
           </Panel>
         )}
 
@@ -697,10 +662,12 @@ export default function Home() {
 
         {activeModule === "cortes" && (
           <>
-            <Panel title="Corte visual y optimización básica">
+            <Panel title="Corte Visual Pro">
               <div style={styles.formGrid}>
                 <input style={styles.input} placeholder="Ancho hoja mm" value={corte.sheetW} onChange={(e) => setCorte({ ...corte, sheetW: e.target.value })} />
                 <input style={styles.input} placeholder="Alto hoja mm" value={corte.sheetH} onChange={(e) => setCorte({ ...corte, sheetH: e.target.value })} />
+                <input style={styles.input} placeholder="Disco / kerf mm" value={corte.kerf} onChange={(e) => setCorte({ ...corte, kerf: e.target.value })} />
+                <input style={styles.input} type="file" accept="image/*" onChange={cargarImagen} />
                 <input style={styles.input} placeholder="Nombre pieza" value={corte.pieceName} onChange={(e) => setCorte({ ...corte, pieceName: e.target.value })} />
                 <input style={styles.input} placeholder="Ancho pieza" value={corte.pieceW} onChange={(e) => setCorte({ ...corte, pieceW: e.target.value })} />
                 <input style={styles.input} placeholder="Alto pieza" value={corte.pieceH} onChange={(e) => setCorte({ ...corte, pieceH: e.target.value })} />
@@ -709,10 +676,17 @@ export default function Home() {
 
               <button style={styles.primaryButton} onClick={agregarPieza}>Agregar pieza</button>
               <button style={styles.darkButton} onClick={optimizarCorte}>Optimizar</button>
+              <button style={styles.darkButton} onClick={limpiarPiezas}>Limpiar</button>
               <button style={styles.darkButton} onClick={imprimir}>Imprimir corte</button>
             </Panel>
 
-            <Panel title="Vista de corte">
+            {imagenCorte && (
+              <Panel title="Imagen de referencia">
+                <img src={imagenCorte} alt="Referencia de corte" style={{ maxWidth: "100%", borderRadius: 18 }} />
+              </Panel>
+            )}
+
+            <Panel title="Vista optimizada">
               <CutView sheetW={Number(corte.sheetW)} sheetH={Number(corte.sheetH)} layout={layoutCorte} />
             </Panel>
 
@@ -755,9 +729,9 @@ export default function Home() {
                         <td>
                           <select style={styles.inputSmall} value={u.role || "lectura"} onChange={(e) => cambiarRolUsuario(u.id, e.target.value)}>
                             <option value="admin">Admin</option>
+                            <option value="ventas">Ventas</option>
                             <option value="inventario">Inventario</option>
                             <option value="produccion">Producción</option>
-                            <option value="ventas">Ventas</option>
                             <option value="lectura">Lectura</option>
                           </select>
                         </td>
@@ -792,11 +766,7 @@ export default function Home() {
 }
 
 function MenuButton({ label, active, onClick }: any) {
-  return (
-    <button onClick={onClick} style={active ? styles.menuActive : styles.menuButton}>
-      {label}
-    </button>
-  );
+  return <button onClick={onClick} style={active ? styles.menuActive : styles.menuButton}>{label}</button>;
 }
 
 function StatCard({ title, value }: any) {
@@ -837,9 +807,12 @@ function Table({ headers, rows }: any) {
 }
 
 function CutView({ sheetW, sheetH, layout }: any) {
-  const scale = 500 / sheetW;
-
+  const scale = 520 / sheetW;
   const sheets = Array.from(new Set(layout.map((p: any) => p.sheet)));
+
+  if (layout.length === 0) {
+    return <p style={{ color: "#64748b" }}>Agrega piezas y presiona Optimizar.</p>;
+  }
 
   return (
     <div>
@@ -877,209 +850,33 @@ function CutView({ sheetW, sheetH, layout }: any) {
 }
 
 const styles: any = {
-  loginPage: {
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    background: "#020617",
-  },
-  loginBox: {
-    width: 360,
-    background: "white",
-    padding: 30,
-    borderRadius: 20,
-    display: "flex",
-    flexDirection: "column",
-    gap: 14,
-  },
-  app: {
-    minHeight: "100vh",
-    display: "flex",
-    background: "#f4f7fb",
-    color: "#0f172a",
-    fontFamily: "Arial, sans-serif",
-  },
-  sidebar: {
-    width: 290,
-    background: "linear-gradient(180deg, #020617, #0f172a)",
-    color: "white",
-    padding: 24,
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "space-between",
-  },
-  logo: {
-    margin: 0,
-    fontSize: 28,
-    color: "#22c55e",
-  },
-  logoSub: {
-    color: "#94a3b8",
-    marginBottom: 30,
-  },
-  menuButton: {
-    width: "100%",
-    background: "transparent",
-    color: "#cbd5e1",
-    border: "none",
-    padding: "14px",
-    textAlign: "left",
-    borderRadius: 12,
-    fontWeight: 800,
-    cursor: "pointer",
-    marginBottom: 8,
-  },
-  menuActive: {
-    width: "100%",
-    background: "#22c55e",
-    color: "#052e16",
-    border: "none",
-    padding: "14px",
-    textAlign: "left",
-    borderRadius: 12,
-    fontWeight: 900,
-    cursor: "pointer",
-    marginBottom: 8,
-  },
-  sidebarFooter: {
-    color: "#94a3b8",
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-  },
-  logoutButton: {
-    background: "#ef4444",
-    color: "white",
-    border: "none",
-    padding: 10,
-    borderRadius: 10,
-    cursor: "pointer",
-  },
-  content: {
-    flex: 1,
-    padding: 34,
-    overflow: "auto",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    marginBottom: 28,
-  },
-  pageTitle: {
-    margin: 0,
-    fontSize: 34,
-    fontWeight: 900,
-  },
-  pageSubtitle: {
-    color: "#64748b",
-  },
-  refreshButton: {
-    background: "#0f172a",
-    color: "white",
-    border: "none",
-    borderRadius: 14,
-    padding: "13px 18px",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  cardsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-    gap: 18,
-  },
-  statCard: {
-    background: "white",
-    borderRadius: 22,
-    padding: 24,
-    border: "1px solid #e2e8f0",
-    boxShadow: "0 12px 35px rgba(15,23,42,.08)",
-  },
-  panel: {
-    background: "white",
-    borderRadius: 24,
-    padding: 24,
-    border: "1px solid #e2e8f0",
-    boxShadow: "0 12px 35px rgba(15,23,42,.08)",
-    marginBottom: 24,
-  },
-  formGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: 14,
-  },
-  input: {
-    width: "100%",
-    border: "1px solid #cbd5e1",
-    borderRadius: 14,
-    padding: "14px 15px",
-    fontSize: 14,
-  },
-  inputSmall: {
-    border: "1px solid #cbd5e1",
-    borderRadius: 10,
-    padding: "8px 10px",
-  },
-  primaryButton: {
-    marginTop: 18,
-    background: "#16a34a",
-    color: "white",
-    border: "none",
-    borderRadius: 16,
-    padding: "14px 22px",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  darkButton: {
-    marginTop: 18,
-    marginLeft: 10,
-    background: "#0f172a",
-    color: "white",
-    border: "none",
-    borderRadius: 16,
-    padding: "14px 22px",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  tableWrap: {
-    overflowX: "auto",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-  },
-  emptyCell: {
-    padding: 20,
-    textAlign: "center",
-    color: "#64748b",
-  },
-  smallGreenButton: {
-    background: "#dcfce7",
-    color: "#166534",
-    border: "none",
-    borderRadius: 10,
-    padding: "8px 10px",
-    marginRight: 8,
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  smallRedButton: {
-    background: "#fee2e2",
-    color: "#991b1b",
-    border: "none",
-    borderRadius: 10,
-    padding: "8px 10px",
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  costBox: {
-    marginTop: 18,
-    background: "#f0fdf4",
-    border: "1px solid #bbf7d0",
-    borderRadius: 16,
-    padding: 18,
-    display: "flex",
-    justifyContent: "space-between",
-    color: "#166534",
-  },
+  loginPage: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#020617" },
+  loginBox: { width: 360, background: "white", padding: 30, borderRadius: 20, display: "flex", flexDirection: "column", gap: 14 },
+  app: { minHeight: "100vh", display: "flex", background: "#f4f7fb", color: "#0f172a", fontFamily: "Arial, sans-serif" },
+  sidebar: { width: 290, background: "linear-gradient(180deg, #020617, #0f172a)", color: "white", padding: 24, display: "flex", flexDirection: "column", justifyContent: "space-between" },
+  logo: { margin: 0, fontSize: 28, color: "#22c55e" },
+  logoSub: { color: "#94a3b8", marginBottom: 30 },
+  menuButton: { width: "100%", background: "transparent", color: "#cbd5e1", border: "none", padding: "14px", textAlign: "left", borderRadius: 12, fontWeight: 800, cursor: "pointer", marginBottom: 8 },
+  menuActive: { width: "100%", background: "#22c55e", color: "#052e16", border: "none", padding: "14px", textAlign: "left", borderRadius: 12, fontWeight: 900, cursor: "pointer", marginBottom: 8 },
+  sidebarFooter: { color: "#94a3b8", display: "flex", flexDirection: "column", gap: 8 },
+  logoutButton: { background: "#ef4444", color: "white", border: "none", padding: 10, borderRadius: 10, cursor: "pointer" },
+  content: { flex: 1, padding: 34, overflow: "auto" },
+  header: { display: "flex", justifyContent: "space-between", marginBottom: 28 },
+  pageTitle: { margin: 0, fontSize: 34, fontWeight: 900 },
+  pageSubtitle: { color: "#64748b" },
+  refreshButton: { background: "#0f172a", color: "white", border: "none", borderRadius: 14, padding: "13px 18px", fontWeight: 900, cursor: "pointer" },
+  cardsGrid: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 18 },
+  statCard: { background: "white", borderRadius: 22, padding: 24, border: "1px solid #e2e8f0", boxShadow: "0 12px 35px rgba(15,23,42,.08)" },
+  panel: { background: "white", borderRadius: 24, padding: 24, border: "1px solid #e2e8f0", boxShadow: "0 12px 35px rgba(15,23,42,.08)", marginBottom: 24 },
+  formGrid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 },
+  input: { width: "100%", border: "1px solid #cbd5e1", borderRadius: 14, padding: "14px 15px", fontSize: 14 },
+  inputSmall: { border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 10px" },
+  primaryButton: { marginTop: 18, background: "#16a34a", color: "white", border: "none", borderRadius: 16, padding: "14px 22px", fontWeight: 900, cursor: "pointer" },
+  darkButton: { marginTop: 18, marginLeft: 10, background: "#0f172a", color: "white", border: "none", borderRadius: 16, padding: "14px 22px", fontWeight: 900, cursor: "pointer" },
+  tableWrap: { overflowX: "auto" },
+  table: { width: "100%", borderCollapse: "collapse" },
+  emptyCell: { padding: 20, textAlign: "center", color: "#64748b" },
+  smallGreenButton: { background: "#dcfce7", color: "#166534", border: "none", borderRadius: 10, padding: "8px 10px", marginRight: 8, fontWeight: 800, cursor: "pointer" },
+  smallRedButton: { background: "#fee2e2", color: "#991b1b", border: "none", borderRadius: 10, padding: "8px 10px", fontWeight: 800, cursor: "pointer" },
+  costBox: { marginTop: 18, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 16, padding: 18, display: "flex", justifyContent: "space-between", color: "#166534" },
 };
