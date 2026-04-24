@@ -17,42 +17,40 @@ type Cliente = {
   nombre: string;
   telefono: string | null;
   email: string | null;
-  direccion: string | null;
   created_at: string;
 };
 
 type Orden = {
   id: string;
   cliente_id: string | null;
-  cliente_nombre: string;
-  proyecto: string;
-  descripcion: string | null;
-  estado: string;
-  total_estimado: number | null;
+  cliente_nombre: string | null;
+  proyecto: string | null;
+  estado: string | null;
+  total: number | null;
   created_at: string;
 };
 
-type InventoryItem = {
+type InventarioItem = {
   id: string;
-  name: string;
-  category: string | null;
-  unit: string | null;
-  stock: number;
-  unit_cost: number | null;
-  created_at?: string;
+  nombre: string;
+  categoria: string | null;
+  unidad: string | null;
+  stock: number | null;
+  costo_unitario: number | null;
+  created_at: string;
 };
 
-type Movement = {
+type Movimiento = {
   id: string;
   item_id: string | null;
-  item_name: string;
-  movement_type: string;
-  quantity: number;
-  stock_before: number;
-  stock_after: number;
-  related_order: string | null;
-  material_used: string | null;
-  notes: string | null;
+  item_nombre: string | null;
+  tipo: string | null;
+  cantidad: number | null;
+  stock_antes: number | null;
+  stock_despues: number | null;
+  orden_relacionada: string | null;
+  material_usado: string | null;
+  notas: string | null;
   created_at: string;
 };
 
@@ -60,107 +58,105 @@ export default function Home() {
   const [activeModule, setActiveModule] = useState<Module>("dashboard");
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
-  const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [movements, setMovements] = useState<Movement[]>([]);
+  const [inventario, setInventario] = useState<InventarioItem[]>([]);
+  const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
   const [loading, setLoading] = useState(false);
 
   const [nuevoCliente, setNuevoCliente] = useState({
     nombre: "",
     telefono: "",
     email: "",
-    direccion: "",
   });
 
   const [nuevaOrden, setNuevaOrden] = useState({
     cliente_id: "",
     proyecto: "",
-    descripcion: "",
-    total_estimado: "",
+    total: "",
   });
 
-  const [newItem, setNewItem] = useState({
-    name: "",
-    category: "",
-    unit: "unidad",
+  const [nuevoMaterial, setNuevoMaterial] = useState({
+    nombre: "",
+    categoria: "",
+    unidad: "unidad",
     stock: "",
-    unit_cost: "",
+    costo_unitario: "",
   });
 
-  const [production, setProduction] = useState({
+  const [produccion, setProduccion] = useState({
     orden_id: "",
-    itemId: "",
-    quantity: "",
-    notes: "",
+    item_id: "",
+    cantidad: "",
+    notas: "",
   });
 
   const [whatsapp, setWhatsapp] = useState({
-    phone: "",
-    message: "",
+    telefono: "",
+    mensaje: "",
   });
 
   useEffect(() => {
-    loadData();
+    cargarTodo();
   }, []);
 
-  async function loadData() {
+  async function cargarTodo() {
     setLoading(true);
     await Promise.all([
-      loadClientes(),
-      loadOrdenes(),
-      loadInventory(),
-      loadMovements(),
+      cargarClientes(),
+      cargarOrdenes(),
+      cargarInventario(),
+      cargarMovimientos(),
     ]);
     setLoading(false);
   }
 
-  async function loadClientes() {
+  async function cargarClientes() {
     const { data, error } = await supabase
       .from("clientes")
       .select("*")
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error(error);
       alert("Error cargando clientes");
+      console.error(error);
       return;
     }
 
     setClientes((data || []) as Cliente[]);
   }
 
-  async function loadOrdenes() {
+  async function cargarOrdenes() {
     const { data, error } = await supabase
       .from("ordenes")
       .select("*")
       .order("created_at", { ascending: false });
 
     if (error) {
-      console.error(error);
       alert("Error cargando órdenes");
+      console.error(error);
       return;
     }
 
     setOrdenes((data || []) as Orden[]);
   }
 
-  async function loadInventory() {
+  async function cargarInventario() {
     const { data, error } = await supabase
-      .from("inventory_items")
+      .from("inventario")
       .select("*")
-      .order("name", { ascending: true });
+      .order("nombre", { ascending: true });
 
     if (error) {
-      console.error(error);
       alert("Error cargando inventario");
+      console.error(error);
       return;
     }
 
-    setInventory((data || []) as InventoryItem[]);
+    setInventario((data || []) as InventarioItem[]);
   }
 
-  async function loadMovements() {
+  async function cargarMovimientos() {
     const { data, error } = await supabase
-      .from("inventory_movements")
+      .from("movimientos")
       .select("*")
       .order("created_at", { ascending: false });
 
@@ -169,22 +165,19 @@ export default function Home() {
       return;
     }
 
-    setMovements((data || []) as Movement[]);
+    setMovimientos((data || []) as Movimiento[]);
   }
 
-  const totalInventoryValue = useMemo(() => {
-    return inventory.reduce((acc, item) => {
-      return acc + Number(item.stock || 0) * Number(item.unit_cost || 0);
+  const valorInventario = useMemo(() => {
+    return inventario.reduce((acc, item) => {
+      return acc + Number(item.stock || 0) * Number(item.costo_unitario || 0);
     }, 0);
-  }, [inventory]);
+  }, [inventario]);
 
-  const lowStockItems = useMemo(() => {
-    return inventory.filter((item) => Number(item.stock || 0) <= 5);
-  }, [inventory]);
-
-  const ordenesPendientes = ordenes.filter((o) => o.estado === "pendiente").length;
-  const ordenesProduccion = ordenes.filter((o) => o.estado === "produccion").length;
-  const ordenesTerminadas = ordenes.filter((o) => o.estado === "terminada").length;
+  const stockBajo = inventario.filter((item) => Number(item.stock || 0) <= 5);
+  const pendientes = ordenes.filter((o) => o.estado === "pendiente").length;
+  const enProduccion = ordenes.filter((o) => o.estado === "produccion").length;
+  const terminadas = ordenes.filter((o) => o.estado === "terminada").length;
 
   async function crearCliente() {
     if (!nuevoCliente.nombre.trim()) {
@@ -196,28 +189,21 @@ export default function Home() {
       nombre: nuevoCliente.nombre.trim(),
       telefono: nuevoCliente.telefono.trim() || null,
       email: nuevoCliente.email.trim() || null,
-      direccion: nuevoCliente.direccion.trim() || null,
     });
 
     if (error) {
-      console.error(error);
       alert("No se pudo guardar el cliente");
+      console.error(error);
       return;
     }
 
-    setNuevoCliente({
-      nombre: "",
-      telefono: "",
-      email: "",
-      direccion: "",
-    });
-
-    await loadClientes();
+    setNuevoCliente({ nombre: "", telefono: "", email: "" });
+    await cargarClientes();
   }
 
   async function crearOrden() {
     if (!nuevaOrden.cliente_id || !nuevaOrden.proyecto.trim()) {
-      alert("Selecciona cliente y escribe el proyecto");
+      alert("Selecciona cliente y proyecto");
       return;
     }
 
@@ -232,258 +218,254 @@ export default function Home() {
       cliente_id: cliente.id,
       cliente_nombre: cliente.nombre,
       proyecto: nuevaOrden.proyecto.trim(),
-      descripcion: nuevaOrden.descripcion.trim() || null,
       estado: "pendiente",
-      total_estimado: Number(nuevaOrden.total_estimado || 0),
+      total: Number(nuevaOrden.total || 0),
     });
 
     if (error) {
-      console.error(error);
       alert("No se pudo crear la orden");
+      console.error(error);
       return;
     }
 
-    setNuevaOrden({
-      cliente_id: "",
-      proyecto: "",
-      descripcion: "",
-      total_estimado: "",
-    });
-
-    await loadOrdenes();
+    setNuevaOrden({ cliente_id: "", proyecto: "", total: "" });
+    await cargarOrdenes();
   }
 
-  async function cambiarEstadoOrden(ordenId: string, estado: string) {
+  async function cambiarEstadoOrden(id: string, estado: string) {
     const { error } = await supabase
       .from("ordenes")
       .update({ estado })
-      .eq("id", ordenId);
+      .eq("id", id);
 
     if (error) {
-      console.error(error);
       alert("No se pudo cambiar el estado");
+      console.error(error);
       return;
     }
 
-    await loadOrdenes();
+    await cargarOrdenes();
   }
 
-  async function addInventoryItem() {
-    if (!newItem.name.trim()) {
+  async function agregarMaterial() {
+    if (!nuevoMaterial.nombre.trim()) {
       alert("Escribe el nombre del material");
       return;
     }
 
-    const { error } = await supabase.from("inventory_items").insert({
-      name: newItem.name.trim(),
-      category: newItem.category.trim() || null,
-      unit: newItem.unit || "unidad",
-      stock: Number(newItem.stock || 0),
-      unit_cost: Number(newItem.unit_cost || 0),
+    const { error } = await supabase.from("inventario").insert({
+      nombre: nuevoMaterial.nombre.trim(),
+      categoria: nuevoMaterial.categoria.trim() || null,
+      unidad: nuevoMaterial.unidad || "unidad",
+      stock: Number(nuevoMaterial.stock || 0),
+      costo_unitario: Number(nuevoMaterial.costo_unitario || 0),
     });
 
     if (error) {
+      alert("No se pudo agregar material");
       console.error(error);
-      alert("No se pudo agregar el material");
       return;
     }
 
-    setNewItem({
-      name: "",
-      category: "",
-      unit: "unidad",
+    setNuevoMaterial({
+      nombre: "",
+      categoria: "",
+      unidad: "unidad",
       stock: "",
-      unit_cost: "",
+      costo_unitario: "",
     });
 
-    await loadData();
+    await cargarInventario();
   }
 
-  async function registerMovement(params: {
-    itemId: string | null;
-    itemName: string;
-    movementType: "entrada" | "salida" | "ajuste" | "produccion";
-    quantity: number;
-    stockBefore: number;
-    stockAfter: number;
-    relatedOrder?: string;
-    materialUsed?: string;
-    notes?: string;
+  async function registrarMovimiento(params: {
+    item_id: string;
+    item_nombre: string;
+    tipo: "entrada" | "salida" | "produccion";
+    cantidad: number;
+    stock_antes: number;
+    stock_despues: number;
+    orden_relacionada?: string;
+    material_usado?: string;
+    notas?: string;
   }) {
-    const { error } = await supabase.from("inventory_movements").insert({
-      item_id: params.itemId,
-      item_name: params.itemName,
-      movement_type: params.movementType,
-      quantity: params.quantity,
-      stock_before: params.stockBefore,
-      stock_after: params.stockAfter,
-      related_order: params.relatedOrder || null,
-      material_used: params.materialUsed || null,
-      notes: params.notes || null,
+    const { error } = await supabase.from("movimientos").insert({
+      item_id: params.item_id,
+      item_nombre: params.item_nombre,
+      tipo: params.tipo,
+      cantidad: params.cantidad,
+      stock_antes: params.stock_antes,
+      stock_despues: params.stock_despues,
+      orden_relacionada: params.orden_relacionada || null,
+      material_usado: params.material_usado || null,
+      notas: params.notas || null,
     });
 
     if (error) {
-      alert("No se pudo guardar el historial");
+      alert("No se pudo guardar movimiento");
       console.error(error);
     }
   }
 
-  async function adjustStock(item: InventoryItem, type: "entrada" | "salida") {
-    const value = prompt(
-      type === "entrada"
-        ? "Cantidad que entra al inventario:"
-        : "Cantidad que sale del inventario:"
+  async function ajustarStock(item: InventarioItem, tipo: "entrada" | "salida") {
+    const valor = prompt(
+      tipo === "entrada"
+        ? "Cantidad que entra:"
+        : "Cantidad que sale:"
     );
 
-    if (!value) return;
+    if (!valor) return;
 
-    const quantity = Number(value);
+    const cantidad = Number(valor);
 
-    if (quantity <= 0) {
+    if (cantidad <= 0) {
       alert("Cantidad inválida");
       return;
     }
 
-    const stockBefore = Number(item.stock || 0);
-    const stockAfter =
-      type === "entrada" ? stockBefore + quantity : stockBefore - quantity;
+    const stockAntes = Number(item.stock || 0);
+    const stockDespues =
+      tipo === "entrada" ? stockAntes + cantidad : stockAntes - cantidad;
 
-    if (stockAfter < 0) {
+    if (stockDespues < 0) {
       alert("No hay suficiente stock");
       return;
     }
 
     const { error } = await supabase
-      .from("inventory_items")
-      .update({ stock: stockAfter })
+      .from("inventario")
+      .update({ stock: stockDespues })
       .eq("id", item.id);
 
     if (error) {
-      alert("No se pudo actualizar el stock");
+      alert("No se pudo actualizar stock");
       console.error(error);
       return;
     }
 
-    await registerMovement({
-      itemId: item.id,
-      itemName: item.name,
-      movementType: type,
-      quantity,
-      stockBefore,
-      stockAfter,
-      relatedOrder: "Movimiento manual",
-      materialUsed: item.name,
+    await registrarMovimiento({
+      item_id: item.id,
+      item_nombre: item.nombre,
+      tipo,
+      cantidad,
+      stock_antes: stockAntes,
+      stock_despues: stockDespues,
+      orden_relacionada: "Movimiento manual",
+      material_usado: item.nombre,
     });
 
-    await loadData();
+    await cargarTodo();
   }
 
-  async function discountFromProduction() {
-    if (!production.orden_id || !production.itemId || !production.quantity) {
+  async function registrarProduccion() {
+    if (!produccion.orden_id || !produccion.item_id || !produccion.cantidad) {
       alert("Selecciona orden, material y cantidad");
       return;
     }
 
-    const orden = ordenes.find((o) => o.id === production.orden_id);
-    const item = inventory.find((i) => i.id === production.itemId);
+    const orden = ordenes.find((o) => o.id === produccion.orden_id);
+    const item = inventario.find((i) => i.id === produccion.item_id);
 
     if (!orden || !item) {
       alert("Orden o material no encontrado");
       return;
     }
 
-    const quantity = Number(production.quantity);
+    const cantidad = Number(produccion.cantidad);
 
-    if (quantity <= 0) {
-      alert("La cantidad debe ser mayor que cero");
+    if (cantidad <= 0) {
+      alert("Cantidad inválida");
       return;
     }
 
-    const stockBefore = Number(item.stock || 0);
-    const stockAfter = stockBefore - quantity;
+    const stockAntes = Number(item.stock || 0);
+    const stockDespues = stockAntes - cantidad;
 
-    if (stockAfter < 0) {
+    if (stockDespues < 0) {
       alert("No hay suficiente stock");
       return;
     }
 
-    const { error } = await supabase
-      .from("inventory_items")
-      .update({ stock: stockAfter })
+    const { error: stockError } = await supabase
+      .from("inventario")
+      .update({ stock: stockDespues })
       .eq("id", item.id);
 
-    if (error) {
+    if (stockError) {
       alert("No se pudo rebajar inventario");
-      console.error(error);
+      console.error(stockError);
       return;
     }
+
+    await supabase.from("produccion").insert({
+      orden_id: orden.id,
+      item_id: item.id,
+      cantidad,
+      notas: produccion.notas || null,
+    });
 
     await supabase
       .from("ordenes")
       .update({ estado: "produccion" })
       .eq("id", orden.id);
 
-    await registerMovement({
-      itemId: item.id,
-      itemName: item.name,
-      movementType: "produccion",
-      quantity,
-      stockBefore,
-      stockAfter,
-      relatedOrder: `${orden.proyecto} - ${orden.cliente_nombre}`,
-      materialUsed: item.name,
-      notes: production.notes || undefined,
+    await registrarMovimiento({
+      item_id: item.id,
+      item_nombre: item.nombre,
+      tipo: "produccion",
+      cantidad,
+      stock_antes: stockAntes,
+      stock_despues: stockDespues,
+      orden_relacionada: `${orden.proyecto || ""} - ${orden.cliente_nombre || ""}`,
+      material_usado: item.nombre,
+      notas: produccion.notas || undefined,
     });
 
-    setProduction({
+    setProduccion({
       orden_id: "",
-      itemId: "",
-      quantity: "",
-      notes: "",
+      item_id: "",
+      cantidad: "",
+      notas: "",
     });
 
-    await loadData();
+    await cargarTodo();
     alert("Producción registrada e inventario rebajado");
   }
 
-  function openWhatsApp() {
-    const phone = whatsapp.phone.replace(/\D/g, "");
-    const message = encodeURIComponent(whatsapp.message);
+  function abrirWhatsApp() {
+    const telefono = whatsapp.telefono.replace(/\D/g, "");
+    const mensaje = encodeURIComponent(whatsapp.mensaje);
 
-    if (!phone || !message) {
+    if (!telefono || !mensaje) {
       alert("Completa teléfono y mensaje");
       return;
     }
 
-    window.open(`https://wa.me/${phone}?text=${message}`, "_blank");
+    window.open(`https://wa.me/${telefono}?text=${mensaje}`, "_blank");
   }
 
-  const selectedProductionItem = inventory.find((i) => i.id === production.itemId);
-  const productionCost =
-    Number(production.quantity || 0) * Number(selectedProductionItem?.unit_cost || 0);
+  const itemProduccion = inventario.find((i) => i.id === produccion.item_id);
+  const costoProduccion =
+    Number(produccion.cantidad || 0) * Number(itemProduccion?.costo_unitario || 0);
 
   return (
     <main style={styles.app}>
       <aside style={styles.sidebar}>
         <div>
-          <div style={styles.logoBox}>
-            <h1 style={styles.logo}>RD WOOD</h1>
-            <p style={styles.logoSub}>Corte Visual Pro</p>
-          </div>
+          <h1 style={styles.logo}>RD WOOD</h1>
+          <p style={styles.logoSub}>Corte Visual Pro Industrial</p>
 
-          <nav style={styles.nav}>
-            <MenuButton label="Dashboard" icon="📊" active={activeModule === "dashboard"} onClick={() => setActiveModule("dashboard")} />
-            <MenuButton label="Clientes" icon="👤" active={activeModule === "clientes"} onClick={() => setActiveModule("clientes")} />
-            <MenuButton label="Órdenes" icon="🧾" active={activeModule === "ordenes"} onClick={() => setActiveModule("ordenes")} />
-            <MenuButton label="Inventario" icon="📦" active={activeModule === "inventario"} onClick={() => setActiveModule("inventario")} />
-            <MenuButton label="Producción" icon="🏭" active={activeModule === "produccion"} onClick={() => setActiveModule("produccion")} />
-            <MenuButton label="Historial" icon="📚" active={activeModule === "historial"} onClick={() => setActiveModule("historial")} />
-            <MenuButton label="WhatsApp" icon="🟢" active={activeModule === "whatsapp"} onClick={() => setActiveModule("whatsapp")} />
-          </nav>
+          <MenuButton label="Dashboard" icon="📊" active={activeModule === "dashboard"} onClick={() => setActiveModule("dashboard")} />
+          <MenuButton label="Clientes" icon="👤" active={activeModule === "clientes"} onClick={() => setActiveModule("clientes")} />
+          <MenuButton label="Órdenes" icon="🧾" active={activeModule === "ordenes"} onClick={() => setActiveModule("ordenes")} />
+          <MenuButton label="Inventario" icon="📦" active={activeModule === "inventario"} onClick={() => setActiveModule("inventario")} />
+          <MenuButton label="Producción" icon="🏭" active={activeModule === "produccion"} onClick={() => setActiveModule("produccion")} />
+          <MenuButton label="Historial" icon="📚" active={activeModule === "historial"} onClick={() => setActiveModule("historial")} />
+          <MenuButton label="WhatsApp" icon="🟢" active={activeModule === "whatsapp"} onClick={() => setActiveModule("whatsapp")} />
         </div>
 
         <div style={styles.sidebarFooter}>
-          <p>RD Wood Design</p>
+          <strong>RD Wood Design</strong>
           <span>Sistema empresarial</span>
         </div>
       </aside>
@@ -505,129 +487,79 @@ export default function Home() {
             </p>
           </div>
 
-          <button style={styles.refreshButton} onClick={loadData}>
+          <button style={styles.refreshButton} onClick={cargarTodo}>
             {loading ? "Cargando..." : "Actualizar"}
           </button>
         </header>
 
         {activeModule === "dashboard" && (
-          <div>
+          <>
             <div style={styles.cardsGrid}>
               <StatCard title="Clientes" value={clientes.length.toString()} />
               <StatCard title="Órdenes" value={ordenes.length.toString()} />
-              <StatCard title="Pendientes" value={ordenesPendientes.toString()} />
-              <StatCard title="En producción" value={ordenesProduccion.toString()} />
-              <StatCard title="Terminadas" value={ordenesTerminadas.toString()} />
-              <StatCard title="Materiales" value={inventory.length.toString()} />
-              <StatCard title="Valor inventario" value={`RD$ ${totalInventoryValue.toLocaleString("es-DO")}`} />
-              <StatCard title="Stock bajo" value={lowStockItems.length.toString()} />
+              <StatCard title="Pendientes" value={pendientes.toString()} />
+              <StatCard title="En producción" value={enProduccion.toString()} />
+              <StatCard title="Terminadas" value={terminadas.toString()} />
+              <StatCard title="Materiales" value={inventario.length.toString()} />
+              <StatCard title="Valor inventario" value={`RD$ ${valorInventario.toLocaleString("es-DO")}`} />
+              <StatCard title="Stock bajo" value={stockBajo.length.toString()} />
             </div>
 
-            <section style={styles.panel}>
-              <div style={styles.panelHeader}>
-                <h3>Órdenes recientes</h3>
-                <span>Últimos trabajos registrados</span>
-              </div>
-
-              <DataTable
+            <Panel title="Órdenes recientes" subtitle="Últimos trabajos registrados">
+              <Table
                 headers={["Cliente", "Proyecto", "Estado", "Total"]}
-                rows={ordenes.slice(0, 5).map((o) => [
-                  o.cliente_nombre,
-                  o.proyecto,
-                  o.estado,
-                  `RD$ ${Number(o.total_estimado || 0).toLocaleString("es-DO")}`,
+                rows={ordenes.slice(0, 6).map((o) => [
+                  o.cliente_nombre || "-",
+                  o.proyecto || "-",
+                  o.estado || "-",
+                  `RD$ ${Number(o.total || 0).toLocaleString("es-DO")}`,
                 ])}
               />
-            </section>
-          </div>
+            </Panel>
+          </>
         )}
 
         {activeModule === "clientes" && (
-          <div style={styles.gridTwo}>
-            <section style={styles.panel}>
-              <div style={styles.panelHeader}>
-                <h3>Nuevo cliente</h3>
-                <span>Registra tus clientes</span>
-              </div>
-
-              <div style={styles.formGridTwo}>
+          <>
+            <Panel title="Nuevo cliente" subtitle="Registra tus clientes">
+              <div style={styles.formGrid}>
                 <input style={styles.input} placeholder="Nombre" value={nuevoCliente.nombre} onChange={(e) => setNuevoCliente({ ...nuevoCliente, nombre: e.target.value })} />
                 <input style={styles.input} placeholder="Teléfono" value={nuevoCliente.telefono} onChange={(e) => setNuevoCliente({ ...nuevoCliente, telefono: e.target.value })} />
                 <input style={styles.input} placeholder="Email" value={nuevoCliente.email} onChange={(e) => setNuevoCliente({ ...nuevoCliente, email: e.target.value })} />
-                <input style={styles.input} placeholder="Dirección" value={nuevoCliente.direccion} onChange={(e) => setNuevoCliente({ ...nuevoCliente, direccion: e.target.value })} />
               </div>
+              <button style={styles.primaryButton} onClick={crearCliente}>Guardar cliente</button>
+            </Panel>
 
-              <button style={styles.primaryButton} onClick={crearCliente}>
-                Guardar cliente
-              </button>
-            </section>
-
-            <section style={styles.panelWide}>
-              <div style={styles.panelHeader}>
-                <h3>Lista de clientes</h3>
-                <span>{clientes.length} clientes registrados</span>
-              </div>
-
-              <div style={styles.tableWrap}>
-                <table style={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>Nombre</th>
-                      <th>Teléfono</th>
-                      <th>Email</th>
-                      <th>Dirección</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {clientes.length === 0 ? (
-                      <tr><td colSpan={4} style={styles.emptyCell}>No hay clientes registrados.</td></tr>
-                    ) : clientes.map((c) => (
-                      <tr key={c.id}>
-                        <td>{c.nombre}</td>
-                        <td>{c.telefono || "-"}</td>
-                        <td>{c.email || "-"}</td>
-                        <td>{c.direccion || "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </div>
+            <Panel title="Lista de clientes" subtitle={`${clientes.length} clientes registrados`}>
+              <Table
+                headers={["Nombre", "Teléfono", "Email"]}
+                rows={clientes.map((c) => [
+                  c.nombre,
+                  c.telefono || "-",
+                  c.email || "-",
+                ])}
+              />
+            </Panel>
+          </>
         )}
 
         {activeModule === "ordenes" && (
-          <div style={styles.gridTwo}>
-            <section style={styles.panel}>
-              <div style={styles.panelHeader}>
-                <h3>Nueva orden</h3>
-                <span>Crea una orden de trabajo</span>
-              </div>
-
-              <div style={styles.formGridTwo}>
+          <>
+            <Panel title="Nueva orden" subtitle="Crea una orden de trabajo">
+              <div style={styles.formGrid}>
                 <select style={styles.input} value={nuevaOrden.cliente_id} onChange={(e) => setNuevaOrden({ ...nuevaOrden, cliente_id: e.target.value })}>
                   <option value="">Seleccionar cliente</option>
                   {clientes.map((c) => (
                     <option key={c.id} value={c.id}>{c.nombre}</option>
                   ))}
                 </select>
-
-                <input style={styles.input} placeholder="Proyecto. Ej: Cocina modular" value={nuevaOrden.proyecto} onChange={(e) => setNuevaOrden({ ...nuevaOrden, proyecto: e.target.value })} />
-                <input style={styles.input} placeholder="Total estimado RD$" type="number" value={nuevaOrden.total_estimado} onChange={(e) => setNuevaOrden({ ...nuevaOrden, total_estimado: e.target.value })} />
-                <input style={styles.input} placeholder="Descripción" value={nuevaOrden.descripcion} onChange={(e) => setNuevaOrden({ ...nuevaOrden, descripcion: e.target.value })} />
+                <input style={styles.input} placeholder="Proyecto" value={nuevaOrden.proyecto} onChange={(e) => setNuevaOrden({ ...nuevaOrden, proyecto: e.target.value })} />
+                <input style={styles.input} type="number" placeholder="Total RD$" value={nuevaOrden.total} onChange={(e) => setNuevaOrden({ ...nuevaOrden, total: e.target.value })} />
               </div>
+              <button style={styles.primaryButton} onClick={crearOrden}>Crear orden</button>
+            </Panel>
 
-              <button style={styles.primaryButton} onClick={crearOrden}>
-                Crear orden
-              </button>
-            </section>
-
-            <section style={styles.panelWide}>
-              <div style={styles.panelHeader}>
-                <h3>Órdenes activas</h3>
-                <span>Control por estado</span>
-              </div>
-
+            <Panel title="Órdenes activas" subtitle="Control por estado">
               <div style={styles.tableWrap}>
                 <table style={styles.table}>
                   <thead>
@@ -640,16 +572,14 @@ export default function Home() {
                     </tr>
                   </thead>
                   <tbody>
-                    {ordenes.length === 0 ? (
-                      <tr><td colSpan={5} style={styles.emptyCell}>No hay órdenes registradas.</td></tr>
-                    ) : ordenes.map((o) => (
+                    {ordenes.map((o) => (
                       <tr key={o.id}>
-                        <td>{o.cliente_nombre}</td>
-                        <td>{o.proyecto}</td>
-                        <td><Badge text={o.estado} /></td>
-                        <td>RD$ {Number(o.total_estimado || 0).toLocaleString("es-DO")}</td>
+                        <td>{o.cliente_nombre || "-"}</td>
+                        <td>{o.proyecto || "-"}</td>
+                        <td><Badge text={o.estado || "pendiente"} /></td>
+                        <td>RD$ {Number(o.total || 0).toLocaleString("es-DO")}</td>
                         <td>
-                          <select style={styles.smallSelect} value={o.estado} onChange={(e) => cambiarEstadoOrden(o.id, e.target.value)}>
+                          <select style={styles.inputSmall} value={o.estado || "pendiente"} onChange={(e) => cambiarEstadoOrden(o.id, e.target.value)}>
                             <option value="pendiente">Pendiente</option>
                             <option value="produccion">Producción</option>
                             <option value="terminada">Terminada</option>
@@ -662,37 +592,24 @@ export default function Home() {
                   </tbody>
                 </table>
               </div>
-            </section>
-          </div>
+            </Panel>
+          </>
         )}
 
         {activeModule === "inventario" && (
-          <div style={styles.gridTwo}>
-            <section style={styles.panel}>
-              <div style={styles.panelHeader}>
-                <h3>Agregar material</h3>
-                <span>Registra materiales disponibles</span>
+          <>
+            <Panel title="Agregar material" subtitle="Registra materiales disponibles">
+              <div style={styles.formGrid}>
+                <input style={styles.input} placeholder="Nombre" value={nuevoMaterial.nombre} onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, nombre: e.target.value })} />
+                <input style={styles.input} placeholder="Categoría" value={nuevoMaterial.categoria} onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, categoria: e.target.value })} />
+                <input style={styles.input} placeholder="Unidad" value={nuevoMaterial.unidad} onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, unidad: e.target.value })} />
+                <input style={styles.input} type="number" placeholder="Stock" value={nuevoMaterial.stock} onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, stock: e.target.value })} />
+                <input style={styles.input} type="number" placeholder="Costo unitario" value={nuevoMaterial.costo_unitario} onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, costo_unitario: e.target.value })} />
               </div>
+              <button style={styles.primaryButton} onClick={agregarMaterial}>Agregar material</button>
+            </Panel>
 
-              <div style={styles.formGridTwo}>
-                <input style={styles.input} placeholder="Nombre" value={newItem.name} onChange={(e) => setNewItem({ ...newItem, name: e.target.value })} />
-                <input style={styles.input} placeholder="Categoría" value={newItem.category} onChange={(e) => setNewItem({ ...newItem, category: e.target.value })} />
-                <input style={styles.input} placeholder="Unidad" value={newItem.unit} onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })} />
-                <input style={styles.input} type="number" placeholder="Stock" value={newItem.stock} onChange={(e) => setNewItem({ ...newItem, stock: e.target.value })} />
-                <input style={styles.input} type="number" placeholder="Costo unitario" value={newItem.unit_cost} onChange={(e) => setNewItem({ ...newItem, unit_cost: e.target.value })} />
-              </div>
-
-              <button style={styles.primaryButton} onClick={addInventoryItem}>
-                Agregar material
-              </button>
-            </section>
-
-            <section style={styles.panelWide}>
-              <div style={styles.panelHeader}>
-                <h3>Inventario actual</h3>
-                <span>Entradas, salidas y stock</span>
-              </div>
-
+            <Panel title="Inventario actual" subtitle="Entradas, salidas y stock">
               <div style={styles.tableWrap}>
                 <table style={styles.table}>
                   <thead>
@@ -705,140 +622,92 @@ export default function Home() {
                     </tr>
                   </thead>
                   <tbody>
-                    {inventory.length === 0 ? (
-                      <tr><td colSpan={5} style={styles.emptyCell}>No hay materiales registrados.</td></tr>
-                    ) : inventory.map((item) => (
+                    {inventario.map((item) => (
                       <tr key={item.id}>
-                        <td>{item.name}</td>
-                        <td>{item.category || "-"}</td>
-                        <td>{item.stock} {item.unit}</td>
-                        <td>RD$ {Number(item.unit_cost || 0).toLocaleString("es-DO")}</td>
+                        <td>{item.nombre}</td>
+                        <td>{item.categoria || "-"}</td>
+                        <td>{item.stock || 0} {item.unidad || ""}</td>
+                        <td>RD$ {Number(item.costo_unitario || 0).toLocaleString("es-DO")}</td>
                         <td>
-                          <button style={styles.smallGreenButton} onClick={() => adjustStock(item, "entrada")}>Entrada</button>
-                          <button style={styles.smallRedButton} onClick={() => adjustStock(item, "salida")}>Salida</button>
+                          <button style={styles.smallGreenButton} onClick={() => ajustarStock(item, "entrada")}>Entrada</button>
+                          <button style={styles.smallRedButton} onClick={() => ajustarStock(item, "salida")}>Salida</button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </section>
-          </div>
+            </Panel>
+          </>
         )}
 
         {activeModule === "produccion" && (
-          <section style={styles.panel}>
-            <div style={styles.panelHeader}>
-              <h3>Producción por orden</h3>
-              <span>Descuenta material y guarda movimiento</span>
-            </div>
-
-            <div style={styles.formGridTwo}>
-              <select style={styles.input} value={production.orden_id} onChange={(e) => setProduction({ ...production, orden_id: e.target.value })}>
+          <Panel title="Producción por orden" subtitle="Descuenta material y guarda movimiento">
+            <div style={styles.formGrid}>
+              <select style={styles.input} value={produccion.orden_id} onChange={(e) => setProduccion({ ...produccion, orden_id: e.target.value })}>
                 <option value="">Seleccionar orden</option>
                 {ordenes.map((o) => (
                   <option key={o.id} value={o.id}>{o.proyecto} - {o.cliente_nombre}</option>
                 ))}
               </select>
 
-              <select style={styles.input} value={production.itemId} onChange={(e) => setProduction({ ...production, itemId: e.target.value })}>
+              <select style={styles.input} value={produccion.item_id} onChange={(e) => setProduccion({ ...produccion, item_id: e.target.value })}>
                 <option value="">Seleccionar material</option>
-                {inventory.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} — Stock: {item.stock} {item.unit}
-                  </option>
+                {inventario.map((item) => (
+                  <option key={item.id} value={item.id}>{item.nombre} — Stock: {item.stock} {item.unidad}</option>
                 ))}
               </select>
 
-              <input style={styles.input} type="number" placeholder="Cantidad usada" value={production.quantity} onChange={(e) => setProduction({ ...production, quantity: e.target.value })} />
-              <input style={styles.input} placeholder="Notas" value={production.notes} onChange={(e) => setProduction({ ...production, notes: e.target.value })} />
+              <input style={styles.input} type="number" placeholder="Cantidad usada" value={produccion.cantidad} onChange={(e) => setProduccion({ ...produccion, cantidad: e.target.value })} />
+              <input style={styles.input} placeholder="Notas" value={produccion.notas} onChange={(e) => setProduccion({ ...produccion, notas: e.target.value })} />
             </div>
 
             <div style={styles.costBox}>
-              <strong>Costo estimado del consumo:</strong>
-              <span>RD$ {productionCost.toLocaleString("es-DO")}</span>
+              <strong>Costo estimado:</strong>
+              <span>RD$ {costoProduccion.toLocaleString("es-DO")}</span>
             </div>
 
-            <button style={styles.primaryButton} onClick={discountFromProduction}>
-              Rebajar inventario y registrar producción
+            <button style={styles.primaryButton} onClick={registrarProduccion}>
+              Registrar producción y rebajar inventario
             </button>
-          </section>
+          </Panel>
         )}
 
         {activeModule === "historial" && (
-          <section style={styles.panel}>
-            <div style={styles.panelHeader}>
-              <h3>Historial de movimientos</h3>
-              <span>Stock antes, después, orden, material y fecha</span>
-            </div>
-
-            <div style={styles.tableWrap}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Tipo</th>
-                    <th>Material</th>
-                    <th>Cantidad</th>
-                    <th>Antes</th>
-                    <th>Después</th>
-                    <th>Orden</th>
-                    <th>Uso</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {movements.length === 0 ? (
-                    <tr><td colSpan={8} style={styles.emptyCell}>No hay movimientos registrados.</td></tr>
-                  ) : movements.map((m) => (
-                    <tr key={m.id}>
-                      <td>{new Date(m.created_at).toLocaleString("es-DO")}</td>
-                      <td><Badge text={m.movement_type} /></td>
-                      <td>{m.item_name}</td>
-                      <td>{m.quantity}</td>
-                      <td>{m.stock_before}</td>
-                      <td>{m.stock_after}</td>
-                      <td>{m.related_order || "-"}</td>
-                      <td>{m.material_used || "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <Panel title="Historial de movimientos" subtitle="Control completo de entradas, salidas y producción">
+            <Table
+              headers={["Fecha", "Tipo", "Material", "Cantidad", "Antes", "Después", "Orden"]}
+              rows={movimientos.map((m) => [
+                new Date(m.created_at).toLocaleString("es-DO"),
+                m.tipo || "-",
+                m.item_nombre || "-",
+                String(m.cantidad || 0),
+                String(m.stock_antes || 0),
+                String(m.stock_despues || 0),
+                m.orden_relacionada || "-",
+              ])}
+            />
+          </Panel>
         )}
 
         {activeModule === "whatsapp" && (
-          <section style={styles.panel}>
-            <div style={styles.panelHeader}>
-              <h3>WhatsApp automático</h3>
-              <span>Envía mensajes directos a clientes</span>
+          <Panel title="WhatsApp automático" subtitle="Enviar mensaje directo al cliente">
+            <div style={styles.formGrid}>
+              <input style={styles.input} placeholder="Teléfono. Ej: 18096905636" value={whatsapp.telefono} onChange={(e) => setWhatsapp({ ...whatsapp, telefono: e.target.value })} />
+              <textarea style={{ ...styles.input, minHeight: 120 }} placeholder="Mensaje" value={whatsapp.mensaje} onChange={(e) => setWhatsapp({ ...whatsapp, mensaje: e.target.value })} />
             </div>
-
-            <div style={styles.formGridTwo}>
-              <input style={styles.input} placeholder="Teléfono. Ej: 18096905636" value={whatsapp.phone} onChange={(e) => setWhatsapp({ ...whatsapp, phone: e.target.value })} />
-              <textarea style={{ ...styles.input, minHeight: 140 }} placeholder="Mensaje" value={whatsapp.message} onChange={(e) => setWhatsapp({ ...whatsapp, message: e.target.value })} />
-            </div>
-
-            <button style={styles.whatsappButton} onClick={openWhatsApp}>
-              Abrir WhatsApp
-            </button>
-          </section>
+            <button style={styles.whatsappButton} onClick={abrirWhatsApp}>Abrir WhatsApp</button>
+          </Panel>
         )}
       </section>
     </main>
   );
 }
 
-function MenuButton({ label, icon, active, onClick }: {
-  label: string;
-  icon: string;
-  active: boolean;
-  onClick: () => void;
-}) {
+function MenuButton({ label, icon, active, onClick }: any) {
   return (
     <button onClick={onClick} style={active ? styles.menuActive : styles.menuButton}>
-      <span>{icon}</span>
-      {label}
+      <span>{icon}</span> {label}
     </button>
   );
 }
@@ -852,33 +721,19 @@ function StatCard({ title, value }: { title: string; value: string }) {
   );
 }
 
-function Badge({ text }: { text: string }) {
-  const color =
-    text === "entrada" ? "#16a34a" :
-    text === "salida" ? "#dc2626" :
-    text === "produccion" ? "#2563eb" :
-    text === "produccion" ? "#2563eb" :
-    text === "terminada" ? "#16a34a" :
-    text === "entregada" ? "#9333ea" :
-    text === "cancelada" ? "#dc2626" :
-    "#ca8a04";
-
+function Panel({ title, subtitle, children }: any) {
   return (
-    <span style={{
-      background: `${color}20`,
-      color,
-      padding: "6px 10px",
-      borderRadius: 999,
-      fontSize: 12,
-      fontWeight: 800,
-      textTransform: "capitalize",
-    }}>
-      {text}
-    </span>
+    <section style={styles.panel}>
+      <div style={styles.panelHeader}>
+        <h3>{title}</h3>
+        <span>{subtitle}</span>
+      </div>
+      {children}
+    </section>
   );
 }
 
-function DataTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
+function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
   return (
     <div style={styles.tableWrap}>
       <table style={styles.table}>
@@ -888,8 +743,8 @@ function DataTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
         <tbody>
           {rows.length === 0 ? (
             <tr><td colSpan={headers.length} style={styles.emptyCell}>No hay datos.</td></tr>
-          ) : rows.map((r, i) => (
-            <tr key={i}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>
+          ) : rows.map((row, i) => (
+            <tr key={i}>{row.map((cell, j) => <td key={j}>{cell}</td>)}</tr>
           ))}
         </tbody>
       </table>
@@ -897,190 +752,47 @@ function DataTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
   );
 }
 
+function Badge({ text }: { text: string }) {
+  const color =
+    text === "produccion" ? "#2563eb" :
+    text === "terminada" ? "#16a34a" :
+    text === "entregada" ? "#9333ea" :
+    text === "cancelada" ? "#dc2626" :
+    "#ca8a04";
+
+  return (
+    <span style={{ background: `${color}22`, color, padding: "6px 10px", borderRadius: 999, fontWeight: 800 }}>
+      {text}
+    </span>
+  );
+}
+
 const styles: any = {
-  app: {
-    minHeight: "100vh",
-    display: "flex",
-    background: "#f4f7fb",
-    color: "#0f172a",
-    fontFamily: "Arial, sans-serif",
-  },
-  sidebar: {
-    width: 285,
-    background: "linear-gradient(180deg, #020617, #0f172a)",
-    color: "white",
-    padding: 24,
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "space-between",
-  },
-  logoBox: { marginBottom: 30 },
+  app: { minHeight: "100vh", display: "flex", background: "#f4f7fb", color: "#0f172a", fontFamily: "Arial, sans-serif" },
+  sidebar: { width: 290, background: "linear-gradient(180deg, #020617, #0f172a)", color: "white", padding: 24, display: "flex", flexDirection: "column", justifyContent: "space-between" },
   logo: { margin: 0, fontSize: 28, color: "#22c55e", letterSpacing: 1 },
-  logoSub: { marginTop: 6, color: "#94a3b8", fontSize: 14 },
-  nav: { display: "flex", flexDirection: "column", gap: 12 },
-  menuButton: {
-    width: "100%",
-    border: "none",
-    background: "transparent",
-    color: "#cbd5e1",
-    padding: "14px 16px",
-    borderRadius: 14,
-    textAlign: "left",
-    fontWeight: 800,
-    cursor: "pointer",
-    fontSize: 15,
-    display: "flex",
-    gap: 10,
-    alignItems: "center",
-  },
-  menuActive: {
-    width: "100%",
-    border: "none",
-    background: "linear-gradient(90deg, #22c55e, #86efac)",
-    color: "#052e16",
-    padding: "14px 16px",
-    borderRadius: 14,
-    textAlign: "left",
-    fontWeight: 900,
-    cursor: "pointer",
-    fontSize: 15,
-    display: "flex",
-    gap: 10,
-    alignItems: "center",
-    boxShadow: "0 10px 25px rgba(34,197,94,.35)",
-  },
-  sidebarFooter: { color: "#94a3b8", fontSize: 13 },
+  logoSub: { marginTop: 6, marginBottom: 30, color: "#94a3b8", fontSize: 14 },
+  menuButton: { width: "100%", border: "none", background: "transparent", color: "#cbd5e1", padding: "14px 16px", borderRadius: 14, textAlign: "left", fontWeight: 800, cursor: "pointer", fontSize: 15, display: "flex", gap: 10, alignItems: "center", marginBottom: 10 },
+  menuActive: { width: "100%", border: "none", background: "linear-gradient(90deg, #22c55e, #86efac)", color: "#052e16", padding: "14px 16px", borderRadius: 14, textAlign: "left", fontWeight: 900, cursor: "pointer", fontSize: 15, display: "flex", gap: 10, alignItems: "center", marginBottom: 10 },
+  sidebarFooter: { color: "#94a3b8", fontSize: 13, display: "flex", flexDirection: "column", gap: 4 },
   content: { flex: 1, padding: 34, overflow: "auto" },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 28,
-  },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 },
   pageTitle: { margin: 0, fontSize: 34, fontWeight: 900 },
   pageSubtitle: { color: "#64748b", marginTop: 6 },
-  refreshButton: {
-    background: "#0f172a",
-    color: "white",
-    border: "none",
-    borderRadius: 14,
-    padding: "13px 18px",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
-  cardsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-    gap: 18,
-    marginBottom: 24,
-  },
-  statCard: {
-    background: "white",
-    borderRadius: 22,
-    padding: 24,
-    boxShadow: "0 12px 35px rgba(15,23,42,.08)",
-    border: "1px solid #e2e8f0",
-  },
-  panel: {
-    background: "white",
-    borderRadius: 24,
-    padding: 24,
-    boxShadow: "0 12px 35px rgba(15,23,42,.08)",
-    border: "1px solid #e2e8f0",
-    marginBottom: 24,
-  },
-  panelWide: {
-    background: "white",
-    borderRadius: 24,
-    padding: 24,
-    boxShadow: "0 12px 35px rgba(15,23,42,.08)",
-    border: "1px solid #e2e8f0",
-    gridColumn: "1 / -1",
-  },
+  refreshButton: { background: "#0f172a", color: "white", border: "none", borderRadius: 14, padding: "13px 18px", fontWeight: 900, cursor: "pointer" },
+  cardsGrid: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 18, marginBottom: 24 },
+  statCard: { background: "white", borderRadius: 22, padding: 24, boxShadow: "0 12px 35px rgba(15,23,42,.08)", border: "1px solid #e2e8f0" },
+  panel: { background: "white", borderRadius: 24, padding: 24, boxShadow: "0 12px 35px rgba(15,23,42,.08)", border: "1px solid #e2e8f0", marginBottom: 24 },
   panelHeader: { marginBottom: 18 },
-  gridTwo: {
-    display: "grid",
-    gridTemplateColumns: "1fr",
-    gap: 24,
-  },
-  formGridTwo: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: 14,
-  },
-  input: {
-    width: "100%",
-    border: "1px solid #cbd5e1",
-    borderRadius: 14,
-    padding: "14px 15px",
-    outline: "none",
-    fontSize: 14,
-    background: "#fff",
-  },
-  primaryButton: {
-    marginTop: 18,
-    background: "linear-gradient(90deg, #16a34a, #22c55e)",
-    color: "white",
-    border: "none",
-    borderRadius: 16,
-    padding: "14px 22px",
-    fontWeight: 900,
-    cursor: "pointer",
-    boxShadow: "0 12px 30px rgba(34,197,94,.25)",
-  },
-  whatsappButton: {
-    marginTop: 18,
-    background: "#16a34a",
-    color: "white",
-    border: "none",
-    borderRadius: 16,
-    padding: "14px 22px",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
+  formGrid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 },
+  input: { width: "100%", border: "1px solid #cbd5e1", borderRadius: 14, padding: "14px 15px", outline: "none", fontSize: 14, background: "#fff" },
+  inputSmall: { border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 10px", background: "white" },
+  primaryButton: { marginTop: 18, background: "linear-gradient(90deg, #16a34a, #22c55e)", color: "white", border: "none", borderRadius: 16, padding: "14px 22px", fontWeight: 900, cursor: "pointer" },
+  whatsappButton: { marginTop: 18, background: "#16a34a", color: "white", border: "none", borderRadius: 16, padding: "14px 22px", fontWeight: 900, cursor: "pointer" },
   tableWrap: { overflowX: "auto" },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-  },
-  emptyCell: {
-    padding: 20,
-    textAlign: "center",
-    color: "#64748b",
-  },
-  smallGreenButton: {
-    background: "#dcfce7",
-    color: "#166534",
-    border: "none",
-    borderRadius: 10,
-    padding: "8px 10px",
-    marginRight: 8,
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  smallRedButton: {
-    background: "#fee2e2",
-    color: "#991b1b",
-    border: "none",
-    borderRadius: 10,
-    padding: "8px 10px",
-    fontWeight: 800,
-    cursor: "pointer",
-  },
-  smallSelect: {
-    border: "1px solid #cbd5e1",
-    borderRadius: 10,
-    padding: "8px 10px",
-    background: "white",
-  },
-  costBox: {
-    marginTop: 18,
-    background: "#f0fdf4",
-    border: "1px solid #bbf7d0",
-    borderRadius: 16,
-    padding: 18,
-    display: "flex",
-    justifyContent: "space-between",
-    color: "#166534",
-  },
+  table: { width: "100%", borderCollapse: "collapse" },
+  emptyCell: { padding: 20, textAlign: "center", color: "#64748b" },
+  smallGreenButton: { background: "#dcfce7", color: "#166534", border: "none", borderRadius: 10, padding: "8px 10px", marginRight: 8, fontWeight: 800, cursor: "pointer" },
+  smallRedButton: { background: "#fee2e2", color: "#991b1b", border: "none", borderRadius: 10, padding: "8px 10px", fontWeight: 800, cursor: "pointer" },
+  costBox: { marginTop: 18, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 16, padding: 18, display: "flex", justifyContent: "space-between", color: "#166534" },
 };
