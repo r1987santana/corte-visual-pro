@@ -10,57 +10,26 @@ type Module =
   | "inventario"
   | "produccion"
   | "historial"
-  | "whatsapp";
+  | "cortes"
+  | "imprimir"
+  | "admin";
 
-type Cliente = {
-  id: string;
-  nombre: string;
-  telefono: string | null;
-  email: string | null;
-  created_at: string;
-};
-
-type Orden = {
-  id: string;
-  cliente_id: string | null;
-  cliente_nombre: string | null;
-  proyecto: string | null;
-  estado: string | null;
-  total: number | null;
-  created_at: string;
-};
-
-type InventarioItem = {
-  id: string;
-  nombre: string;
-  categoria: string | null;
-  unidad: string | null;
-  stock: number | null;
-  costo_unitario: number | null;
-  created_at: string;
-};
-
-type Movimiento = {
-  id: string;
-  item_id: string | null;
-  item_nombre: string | null;
-  tipo: string | null;
-  cantidad: number | null;
-  stock_antes: number | null;
-  stock_despues: number | null;
-  orden_relacionada: string | null;
-  material_usado: string | null;
-  notas: string | null;
-  created_at: string;
-};
+type Role = "admin" | "inventario" | "produccion" | "ventas" | "lectura";
 
 export default function Home() {
+  const [session, setSession] = useState<any>(null);
+  const [profile, setProfile] = useState<any>(null);
   const [activeModule, setActiveModule] = useState<Module>("dashboard");
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [ordenes, setOrdenes] = useState<Orden[]>([]);
-  const [inventario, setInventario] = useState<InventarioItem[]>([]);
-  const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const [login, setLogin] = useState({ email: "", password: "" });
+
+  const [clientes, setClientes] = useState<any[]>([]);
+  const [ordenes, setOrdenes] = useState<any[]>([]);
+  const [inventario, setInventario] = useState<any[]>([]);
+  const [movimientos, setMovimientos] = useState<any[]>([]);
+  const [categorias, setCategorias] = useState<any[]>([]);
+  const [usuarios, setUsuarios] = useState<any[]>([]);
 
   const [nuevoCliente, setNuevoCliente] = useState({
     nombre: "",
@@ -77,9 +46,15 @@ export default function Home() {
   const [nuevoMaterial, setNuevoMaterial] = useState({
     nombre: "",
     categoria: "",
+    category_id: "",
     unidad: "unidad",
     stock: "",
     costo_unitario: "",
+  });
+
+  const [nuevaCategoria, setNuevaCategoria] = useState({
+    name: "",
+    description: "",
   });
 
   const [produccion, setProduccion] = useState({
@@ -89,14 +64,73 @@ export default function Home() {
     notas: "",
   });
 
-  const [whatsapp, setWhatsapp] = useState({
-    telefono: "",
-    mensaje: "",
+  const [corte, setCorte] = useState({
+    sheetW: "2440",
+    sheetH: "1220",
+    pieceName: "",
+    pieceW: "",
+    pieceH: "",
+    qty: "1",
   });
 
+  const [piezas, setPiezas] = useState<any[]>([]);
+  const [layoutCorte, setLayoutCorte] = useState<any[]>([]);
+
   useEffect(() => {
-    cargarTodo();
+    init();
   }, []);
+
+  async function init() {
+    const { data } = await supabase.auth.getSession();
+    setSession(data.session);
+
+    if (data.session?.user) {
+      await cargarPerfil(data.session.user.id);
+      await cargarTodo();
+    }
+  }
+
+  async function loginUser() {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: login.email,
+      password: login.password,
+    });
+
+    if (error) {
+      alert("Usuario o contraseña incorrectos");
+      return;
+    }
+
+    setSession(data.session);
+    await cargarPerfil(data.session?.user?.id);
+    await cargarTodo();
+  }
+
+  async function logout() {
+    await supabase.auth.signOut();
+    setSession(null);
+    setProfile(null);
+  }
+
+  async function cargarPerfil(userId: string) {
+    const { data } = await supabase
+      .from("user_profiles")
+      .select("*")
+      .eq("id", userId)
+      .single();
+
+    setProfile(data);
+  }
+
+  function puede(area: string) {
+    const role: Role = profile?.role || "lectura";
+
+    if (role === "admin") return true;
+    if (area === "inventario") return role === "inventario";
+    if (area === "produccion") return role === "produccion";
+    if (area === "ventas") return role === "ventas";
+    return false;
+  }
 
   async function cargarTodo() {
     setLoading(true);
@@ -105,67 +139,45 @@ export default function Home() {
       cargarOrdenes(),
       cargarInventario(),
       cargarMovimientos(),
+      cargarCategorias(),
+      cargarUsuarios(),
     ]);
     setLoading(false);
   }
 
   async function cargarClientes() {
-    const { data, error } = await supabase
-      .from("clientes")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      alert("Error cargando clientes");
-      console.error(error);
-      return;
-    }
-
-    setClientes((data || []) as Cliente[]);
+    const { data } = await supabase.from("clientes").select("*").order("created_at", { ascending: false });
+    setClientes(data || []);
   }
 
   async function cargarOrdenes() {
-    const { data, error } = await supabase
-      .from("ordenes")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      alert("Error cargando órdenes");
-      console.error(error);
-      return;
-    }
-
-    setOrdenes((data || []) as Orden[]);
+    const { data } = await supabase.from("ordenes").select("*").order("created_at", { ascending: false });
+    setOrdenes(data || []);
   }
 
   async function cargarInventario() {
-    const { data, error } = await supabase
-      .from("inventario")
-      .select("*")
-      .order("nombre", { ascending: true });
-
-    if (error) {
-      alert("Error cargando inventario");
-      console.error(error);
-      return;
-    }
-
-    setInventario((data || []) as InventarioItem[]);
+    const { data } = await supabase.from("inventario").select("*").order("nombre", { ascending: true });
+    setInventario(data || []);
   }
 
   async function cargarMovimientos() {
-    const { data, error } = await supabase
-      .from("movimientos")
+    const { data } = await supabase.from("movimientos").select("*").order("created_at", { ascending: false });
+    setMovimientos(data || []);
+  }
+
+  async function cargarCategorias() {
+    const { data } = await supabase
+      .from("inventory_categories")
       .select("*")
-      .order("created_at", { ascending: false });
+      .eq("is_active", true)
+      .order("name", { ascending: true });
 
-    if (error) {
-      console.error(error);
-      return;
-    }
+    setCategorias(data || []);
+  }
 
-    setMovimientos((data || []) as Movimiento[]);
+  async function cargarUsuarios() {
+    const { data } = await supabase.from("user_profiles").select("*").order("created_at", { ascending: false });
+    setUsuarios(data || []);
   }
 
   const valorInventario = useMemo(() => {
@@ -180,96 +192,78 @@ export default function Home() {
   const terminadas = ordenes.filter((o) => o.estado === "terminada").length;
 
   async function crearCliente() {
-    if (!nuevoCliente.nombre.trim()) {
-      alert("Escribe el nombre del cliente");
-      return;
-    }
+    if (!puede("ventas") && !puede("admin")) return alert("No tienes permiso");
+    if (!nuevoCliente.nombre.trim()) return alert("Escribe el nombre");
 
-    const { error } = await supabase.from("clientes").insert({
-      nombre: nuevoCliente.nombre.trim(),
-      telefono: nuevoCliente.telefono.trim() || null,
-      email: nuevoCliente.email.trim() || null,
+    await supabase.from("clientes").insert({
+      nombre: nuevoCliente.nombre,
+      telefono: nuevoCliente.telefono || null,
+      email: nuevoCliente.email || null,
     });
-
-    if (error) {
-      alert("No se pudo guardar el cliente");
-      console.error(error);
-      return;
-    }
 
     setNuevoCliente({ nombre: "", telefono: "", email: "" });
     await cargarClientes();
   }
 
   async function crearOrden() {
-    if (!nuevaOrden.cliente_id || !nuevaOrden.proyecto.trim()) {
-      alert("Selecciona cliente y proyecto");
-      return;
-    }
+    if (!puede("ventas") && !puede("admin")) return alert("No tienes permiso");
 
     const cliente = clientes.find((c) => c.id === nuevaOrden.cliente_id);
+    if (!cliente) return alert("Selecciona cliente");
 
-    if (!cliente) {
-      alert("Cliente no encontrado");
-      return;
-    }
-
-    const { error } = await supabase.from("ordenes").insert({
+    await supabase.from("ordenes").insert({
       cliente_id: cliente.id,
       cliente_nombre: cliente.nombre,
-      proyecto: nuevaOrden.proyecto.trim(),
+      proyecto: nuevaOrden.proyecto,
       estado: "pendiente",
       total: Number(nuevaOrden.total || 0),
     });
-
-    if (error) {
-      alert("No se pudo crear la orden");
-      console.error(error);
-      return;
-    }
 
     setNuevaOrden({ cliente_id: "", proyecto: "", total: "" });
     await cargarOrdenes();
   }
 
   async function cambiarEstadoOrden(id: string, estado: string) {
-    const { error } = await supabase
-      .from("ordenes")
-      .update({ estado })
-      .eq("id", id);
+    if (!puede("produccion") && !puede("admin")) return alert("No tienes permiso");
 
-    if (error) {
-      alert("No se pudo cambiar el estado");
-      console.error(error);
-      return;
-    }
-
+    await supabase.from("ordenes").update({ estado }).eq("id", id);
     await cargarOrdenes();
   }
 
-  async function agregarMaterial() {
-    if (!nuevoMaterial.nombre.trim()) {
-      alert("Escribe el nombre del material");
-      return;
-    }
+  async function crearCategoria() {
+    if (!puede("admin")) return alert("Solo administrador");
 
-    const { error } = await supabase.from("inventario").insert({
-      nombre: nuevoMaterial.nombre.trim(),
-      categoria: nuevoMaterial.categoria.trim() || null,
-      unidad: nuevoMaterial.unidad || "unidad",
+    if (!nuevaCategoria.name.trim()) return alert("Escribe categoría");
+
+    await supabase.from("inventory_categories").insert({
+      name: nuevaCategoria.name.trim(),
+      description: nuevaCategoria.description || null,
+    });
+
+    setNuevaCategoria({ name: "", description: "" });
+    await cargarCategorias();
+  }
+
+  async function agregarMaterial() {
+    if (!puede("inventario") && !puede("admin")) return alert("No tienes permiso");
+    if (!nuevoMaterial.nombre.trim()) return alert("Escribe material");
+    if (!nuevoMaterial.category_id) return alert("Selecciona categoría");
+
+    const categoria = categorias.find((c) => c.id === nuevoMaterial.category_id);
+
+    await supabase.from("inventario").insert({
+      nombre: nuevoMaterial.nombre,
+      categoria: categoria?.name || null,
+      category_id: nuevoMaterial.category_id,
+      unidad: nuevoMaterial.unidad,
       stock: Number(nuevoMaterial.stock || 0),
       costo_unitario: Number(nuevoMaterial.costo_unitario || 0),
     });
 
-    if (error) {
-      alert("No se pudo agregar material");
-      console.error(error);
-      return;
-    }
-
     setNuevoMaterial({
       nombre: "",
       categoria: "",
+      category_id: "",
       unidad: "unidad",
       stock: "",
       costo_unitario: "",
@@ -278,18 +272,8 @@ export default function Home() {
     await cargarInventario();
   }
 
-  async function registrarMovimiento(params: {
-    item_id: string;
-    item_nombre: string;
-    tipo: "entrada" | "salida" | "produccion";
-    cantidad: number;
-    stock_antes: number;
-    stock_despues: number;
-    orden_relacionada?: string;
-    material_usado?: string;
-    notas?: string;
-  }) {
-    const { error } = await supabase.from("movimientos").insert({
+  async function registrarMovimiento(params: any) {
+    await supabase.from("movimientos").insert({
       item_id: params.item_id,
       item_nombre: params.item_nombre,
       tipo: params.tipo,
@@ -300,56 +284,29 @@ export default function Home() {
       material_usado: params.material_usado || null,
       notas: params.notas || null,
     });
-
-    if (error) {
-      alert("No se pudo guardar movimiento");
-      console.error(error);
-    }
   }
 
-  async function ajustarStock(item: InventarioItem, tipo: "entrada" | "salida") {
-    const valor = prompt(
-      tipo === "entrada"
-        ? "Cantidad que entra:"
-        : "Cantidad que sale:"
-    );
+  async function ajustarStock(item: any, tipo: "entrada" | "salida") {
+    if (!puede("inventario") && !puede("admin")) return alert("No tienes permiso");
 
+    const valor = prompt(tipo === "entrada" ? "Cantidad que entra:" : "Cantidad que sale:");
     if (!valor) return;
 
     const cantidad = Number(valor);
+    const antes = Number(item.stock || 0);
+    const despues = tipo === "entrada" ? antes + cantidad : antes - cantidad;
 
-    if (cantidad <= 0) {
-      alert("Cantidad inválida");
-      return;
-    }
+    if (despues < 0) return alert("No hay suficiente stock");
 
-    const stockAntes = Number(item.stock || 0);
-    const stockDespues =
-      tipo === "entrada" ? stockAntes + cantidad : stockAntes - cantidad;
-
-    if (stockDespues < 0) {
-      alert("No hay suficiente stock");
-      return;
-    }
-
-    const { error } = await supabase
-      .from("inventario")
-      .update({ stock: stockDespues })
-      .eq("id", item.id);
-
-    if (error) {
-      alert("No se pudo actualizar stock");
-      console.error(error);
-      return;
-    }
+    await supabase.from("inventario").update({ stock: despues }).eq("id", item.id);
 
     await registrarMovimiento({
       item_id: item.id,
       item_nombre: item.nombre,
       tipo,
       cantidad,
-      stock_antes: stockAntes,
-      stock_despues: stockDespues,
+      stock_antes: antes,
+      stock_despues: despues,
       orden_relacionada: "Movimiento manual",
       material_usado: item.nombre,
     });
@@ -358,44 +315,21 @@ export default function Home() {
   }
 
   async function registrarProduccion() {
-    if (!produccion.orden_id || !produccion.item_id || !produccion.cantidad) {
-      alert("Selecciona orden, material y cantidad");
-      return;
-    }
+    if (!puede("produccion") && !puede("admin")) return alert("No tienes permiso");
 
     const orden = ordenes.find((o) => o.id === produccion.orden_id);
     const item = inventario.find((i) => i.id === produccion.item_id);
 
-    if (!orden || !item) {
-      alert("Orden o material no encontrado");
-      return;
-    }
+    if (!orden || !item) return alert("Selecciona orden y material");
 
     const cantidad = Number(produccion.cantidad);
+    const antes = Number(item.stock || 0);
+    const despues = antes - cantidad;
 
-    if (cantidad <= 0) {
-      alert("Cantidad inválida");
-      return;
-    }
+    if (cantidad <= 0) return alert("Cantidad inválida");
+    if (despues < 0) return alert("No hay suficiente stock");
 
-    const stockAntes = Number(item.stock || 0);
-    const stockDespues = stockAntes - cantidad;
-
-    if (stockDespues < 0) {
-      alert("No hay suficiente stock");
-      return;
-    }
-
-    const { error: stockError } = await supabase
-      .from("inventario")
-      .update({ stock: stockDespues })
-      .eq("id", item.id);
-
-    if (stockError) {
-      alert("No se pudo rebajar inventario");
-      console.error(stockError);
-      return;
-    }
+    await supabase.from("inventario").update({ stock: despues }).eq("id", item.id);
 
     await supabase.from("produccion").insert({
       orden_id: orden.id,
@@ -404,44 +338,132 @@ export default function Home() {
       notas: produccion.notas || null,
     });
 
-    await supabase
-      .from("ordenes")
-      .update({ estado: "produccion" })
-      .eq("id", orden.id);
+    await supabase.from("ordenes").update({ estado: "produccion" }).eq("id", orden.id);
 
     await registrarMovimiento({
       item_id: item.id,
       item_nombre: item.nombre,
       tipo: "produccion",
       cantidad,
-      stock_antes: stockAntes,
-      stock_despues: stockDespues,
+      stock_antes: antes,
+      stock_despues: despues,
       orden_relacionada: `${orden.proyecto || ""} - ${orden.cliente_nombre || ""}`,
       material_usado: item.nombre,
-      notas: produccion.notas || undefined,
+      notas: produccion.notas || null,
     });
 
-    setProduccion({
-      orden_id: "",
-      item_id: "",
-      cantidad: "",
-      notas: "",
-    });
-
+    setProduccion({ orden_id: "", item_id: "", cantidad: "", notas: "" });
     await cargarTodo();
-    alert("Producción registrada e inventario rebajado");
   }
 
-  function abrirWhatsApp() {
-    const telefono = whatsapp.telefono.replace(/\D/g, "");
-    const mensaje = encodeURIComponent(whatsapp.mensaje);
+  async function cambiarRolUsuario(id: string, role: string) {
+    if (!puede("admin")) return alert("Solo administrador");
 
-    if (!telefono || !mensaje) {
-      alert("Completa teléfono y mensaje");
+    await supabase.from("user_profiles").update({ role }).eq("id", id);
+    await cargarUsuarios();
+  }
+
+  async function cambiarEstadoUsuario(id: string, is_active: boolean) {
+    if (!puede("admin")) return alert("Solo administrador");
+
+    await supabase.from("user_profiles").update({ is_active }).eq("id", id);
+    await cargarUsuarios();
+  }
+
+  function agregarPieza() {
+    if (!corte.pieceName || !corte.pieceW || !corte.pieceH) {
+      alert("Completa pieza");
       return;
     }
 
-    window.open(`https://wa.me/${telefono}?text=${mensaje}`, "_blank");
+    const qty = Number(corte.qty || 1);
+    const nuevas = [];
+
+    for (let i = 0; i < qty; i++) {
+      nuevas.push({
+        id: crypto.randomUUID(),
+        name: corte.pieceName,
+        w: Number(corte.pieceW),
+        h: Number(corte.pieceH),
+      });
+    }
+
+    setPiezas([...piezas, ...nuevas]);
+    setCorte({ ...corte, pieceName: "", pieceW: "", pieceH: "", qty: "1" });
+  }
+
+  function optimizarCorte() {
+    const sheetW = Number(corte.sheetW);
+    const sheetH = Number(corte.sheetH);
+
+    let x = 0;
+    let y = 0;
+    let rowH = 0;
+    let sheet = 1;
+
+    const sorted = [...piezas].sort((a, b) => b.h - a.h);
+    const result: any[] = [];
+
+    for (const p of sorted) {
+      if (x + p.w > sheetW) {
+        x = 0;
+        y += rowH;
+        rowH = 0;
+      }
+
+      if (y + p.h > sheetH) {
+        sheet += 1;
+        x = 0;
+        y = 0;
+        rowH = 0;
+      }
+
+      result.push({
+        ...p,
+        x,
+        y,
+        sheet,
+      });
+
+      x += p.w;
+      rowH = Math.max(rowH, p.h);
+    }
+
+    setLayoutCorte(result);
+  }
+
+  function imprimir() {
+    window.print();
+  }
+
+  if (!session) {
+    return (
+      <main style={styles.loginPage}>
+        <div style={styles.loginBox}>
+          <h1>RD WOOD</h1>
+          <p>Corte Visual Pro Industrial</p>
+
+          <input
+            style={styles.input}
+            placeholder="Email"
+            value={login.email}
+            onChange={(e) => setLogin({ ...login, email: e.target.value })}
+          />
+
+          <input
+            style={styles.input}
+            type="password"
+            placeholder="Contraseña"
+            value={login.password}
+            onChange={(e) => setLogin({ ...login, password: e.target.value })}
+          />
+
+          <button style={styles.primaryButton} onClick={loginUser}>
+            Entrar
+          </button>
+        </div>
+      </main>
+    );
   }
 
   const itemProduccion = inventario.find((i) => i.id === produccion.item_id);
@@ -450,41 +472,37 @@ export default function Home() {
 
   return (
     <main style={styles.app}>
-      <aside style={styles.sidebar}>
+      <aside style={styles.sidebar} className="no-print">
         <div>
           <h1 style={styles.logo}>RD WOOD</h1>
-          <p style={styles.logoSub}>Corte Visual Pro Industrial</p>
+          <p style={styles.logoSub}>Industrial ERP</p>
 
-          <MenuButton label="Dashboard" icon="📊" active={activeModule === "dashboard"} onClick={() => setActiveModule("dashboard")} />
-          <MenuButton label="Clientes" icon="👤" active={activeModule === "clientes"} onClick={() => setActiveModule("clientes")} />
-          <MenuButton label="Órdenes" icon="🧾" active={activeModule === "ordenes"} onClick={() => setActiveModule("ordenes")} />
-          <MenuButton label="Inventario" icon="📦" active={activeModule === "inventario"} onClick={() => setActiveModule("inventario")} />
-          <MenuButton label="Producción" icon="🏭" active={activeModule === "produccion"} onClick={() => setActiveModule("produccion")} />
-          <MenuButton label="Historial" icon="📚" active={activeModule === "historial"} onClick={() => setActiveModule("historial")} />
-          <MenuButton label="WhatsApp" icon="🟢" active={activeModule === "whatsapp"} onClick={() => setActiveModule("whatsapp")} />
+          <MenuButton label="Dashboard" active={activeModule === "dashboard"} onClick={() => setActiveModule("dashboard")} />
+          <MenuButton label="Clientes" active={activeModule === "clientes"} onClick={() => setActiveModule("clientes")} />
+          <MenuButton label="Órdenes" active={activeModule === "ordenes"} onClick={() => setActiveModule("ordenes")} />
+          <MenuButton label="Inventario" active={activeModule === "inventario"} onClick={() => setActiveModule("inventario")} />
+          <MenuButton label="Producción" active={activeModule === "produccion"} onClick={() => setActiveModule("produccion")} />
+          <MenuButton label="Historial" active={activeModule === "historial"} onClick={() => setActiveModule("historial")} />
+          <MenuButton label="Corte Visual" active={activeModule === "cortes"} onClick={() => setActiveModule("cortes")} />
+          <MenuButton label="Imprimir" active={activeModule === "imprimir"} onClick={() => setActiveModule("imprimir")} />
+
+          {profile?.role === "admin" && (
+            <MenuButton label="Administrador" active={activeModule === "admin"} onClick={() => setActiveModule("admin")} />
+          )}
         </div>
 
         <div style={styles.sidebarFooter}>
-          <strong>RD Wood Design</strong>
-          <span>Sistema empresarial</span>
+          <strong>{profile?.full_name || session.user.email}</strong>
+          <span>Rol: {profile?.role || "sin rol"}</span>
+          <button style={styles.logoutButton} onClick={logout}>Salir</button>
         </div>
       </aside>
 
       <section style={styles.content}>
-        <header style={styles.header}>
+        <header style={styles.header} className="no-print">
           <div>
-            <h2 style={styles.pageTitle}>
-              {activeModule === "dashboard" && "Dashboard"}
-              {activeModule === "clientes" && "Clientes"}
-              {activeModule === "ordenes" && "Órdenes de trabajo"}
-              {activeModule === "inventario" && "Inventario"}
-              {activeModule === "produccion" && "Producción"}
-              {activeModule === "historial" && "Historial"}
-              {activeModule === "whatsapp" && "WhatsApp"}
-            </h2>
-            <p style={styles.pageSubtitle}>
-              Control real de clientes, órdenes, inventario y producción.
-            </p>
+            <h2 style={styles.pageTitle}>{activeModule.toUpperCase()}</h2>
+            <p style={styles.pageSubtitle}>Sistema profesional con roles, inventario y producción.</p>
           </div>
 
           <button style={styles.refreshButton} onClick={cargarTodo}>
@@ -495,71 +513,52 @@ export default function Home() {
         {activeModule === "dashboard" && (
           <>
             <div style={styles.cardsGrid}>
-              <StatCard title="Clientes" value={clientes.length.toString()} />
-              <StatCard title="Órdenes" value={ordenes.length.toString()} />
-              <StatCard title="Pendientes" value={pendientes.toString()} />
-              <StatCard title="En producción" value={enProduccion.toString()} />
-              <StatCard title="Terminadas" value={terminadas.toString()} />
-              <StatCard title="Materiales" value={inventario.length.toString()} />
+              <StatCard title="Clientes" value={clientes.length} />
+              <StatCard title="Órdenes" value={ordenes.length} />
+              <StatCard title="Pendientes" value={pendientes} />
+              <StatCard title="Producción" value={enProduccion} />
+              <StatCard title="Terminadas" value={terminadas} />
+              <StatCard title="Materiales" value={inventario.length} />
               <StatCard title="Valor inventario" value={`RD$ ${valorInventario.toLocaleString("es-DO")}`} />
-              <StatCard title="Stock bajo" value={stockBajo.length.toString()} />
+              <StatCard title="Stock bajo" value={stockBajo.length} />
             </div>
-
-            <Panel title="Órdenes recientes" subtitle="Últimos trabajos registrados">
-              <Table
-                headers={["Cliente", "Proyecto", "Estado", "Total"]}
-                rows={ordenes.slice(0, 6).map((o) => [
-                  o.cliente_nombre || "-",
-                  o.proyecto || "-",
-                  o.estado || "-",
-                  `RD$ ${Number(o.total || 0).toLocaleString("es-DO")}`,
-                ])}
-              />
-            </Panel>
           </>
         )}
 
         {activeModule === "clientes" && (
           <>
-            <Panel title="Nuevo cliente" subtitle="Registra tus clientes">
+            <Panel title="Nuevo cliente">
               <div style={styles.formGrid}>
                 <input style={styles.input} placeholder="Nombre" value={nuevoCliente.nombre} onChange={(e) => setNuevoCliente({ ...nuevoCliente, nombre: e.target.value })} />
                 <input style={styles.input} placeholder="Teléfono" value={nuevoCliente.telefono} onChange={(e) => setNuevoCliente({ ...nuevoCliente, telefono: e.target.value })} />
                 <input style={styles.input} placeholder="Email" value={nuevoCliente.email} onChange={(e) => setNuevoCliente({ ...nuevoCliente, email: e.target.value })} />
               </div>
-              <button style={styles.primaryButton} onClick={crearCliente}>Guardar cliente</button>
+              {(puede("ventas") || puede("admin")) && <button style={styles.primaryButton} onClick={crearCliente}>Guardar cliente</button>}
             </Panel>
 
-            <Panel title="Lista de clientes" subtitle={`${clientes.length} clientes registrados`}>
-              <Table
-                headers={["Nombre", "Teléfono", "Email"]}
-                rows={clientes.map((c) => [
-                  c.nombre,
-                  c.telefono || "-",
-                  c.email || "-",
-                ])}
-              />
+            <Panel title="Clientes registrados">
+              <Table headers={["Nombre", "Teléfono", "Email"]} rows={clientes.map((c) => [c.nombre, c.telefono || "-", c.email || "-"])} />
             </Panel>
           </>
         )}
 
         {activeModule === "ordenes" && (
           <>
-            <Panel title="Nueva orden" subtitle="Crea una orden de trabajo">
+            <Panel title="Nueva orden">
               <div style={styles.formGrid}>
                 <select style={styles.input} value={nuevaOrden.cliente_id} onChange={(e) => setNuevaOrden({ ...nuevaOrden, cliente_id: e.target.value })}>
                   <option value="">Seleccionar cliente</option>
-                  {clientes.map((c) => (
-                    <option key={c.id} value={c.id}>{c.nombre}</option>
-                  ))}
+                  {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                 </select>
+
                 <input style={styles.input} placeholder="Proyecto" value={nuevaOrden.proyecto} onChange={(e) => setNuevaOrden({ ...nuevaOrden, proyecto: e.target.value })} />
                 <input style={styles.input} type="number" placeholder="Total RD$" value={nuevaOrden.total} onChange={(e) => setNuevaOrden({ ...nuevaOrden, total: e.target.value })} />
               </div>
-              <button style={styles.primaryButton} onClick={crearOrden}>Crear orden</button>
+
+              {(puede("ventas") || puede("admin")) && <button style={styles.primaryButton} onClick={crearOrden}>Crear orden</button>}
             </Panel>
 
-            <Panel title="Órdenes activas" subtitle="Control por estado">
+            <Panel title="Órdenes">
               <div style={styles.tableWrap}>
                 <table style={styles.table}>
                   <thead>
@@ -574,18 +573,20 @@ export default function Home() {
                   <tbody>
                     {ordenes.map((o) => (
                       <tr key={o.id}>
-                        <td>{o.cliente_nombre || "-"}</td>
-                        <td>{o.proyecto || "-"}</td>
-                        <td><Badge text={o.estado || "pendiente"} /></td>
+                        <td>{o.cliente_nombre}</td>
+                        <td>{o.proyecto}</td>
+                        <td>{o.estado}</td>
                         <td>RD$ {Number(o.total || 0).toLocaleString("es-DO")}</td>
                         <td>
-                          <select style={styles.inputSmall} value={o.estado || "pendiente"} onChange={(e) => cambiarEstadoOrden(o.id, e.target.value)}>
-                            <option value="pendiente">Pendiente</option>
-                            <option value="produccion">Producción</option>
-                            <option value="terminada">Terminada</option>
-                            <option value="entregada">Entregada</option>
-                            <option value="cancelada">Cancelada</option>
-                          </select>
+                          {(puede("produccion") || puede("admin")) && (
+                            <select style={styles.inputSmall} value={o.estado || "pendiente"} onChange={(e) => cambiarEstadoOrden(o.id, e.target.value)}>
+                              <option value="pendiente">Pendiente</option>
+                              <option value="produccion">Producción</option>
+                              <option value="terminada">Terminada</option>
+                              <option value="entregada">Entregada</option>
+                              <option value="cancelada">Cancelada</option>
+                            </select>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -598,18 +599,24 @@ export default function Home() {
 
         {activeModule === "inventario" && (
           <>
-            <Panel title="Agregar material" subtitle="Registra materiales disponibles">
+            <Panel title="Agregar material">
               <div style={styles.formGrid}>
                 <input style={styles.input} placeholder="Nombre" value={nuevoMaterial.nombre} onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, nombre: e.target.value })} />
-                <input style={styles.input} placeholder="Categoría" value={nuevoMaterial.categoria} onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, categoria: e.target.value })} />
+
+                <select style={styles.input} value={nuevoMaterial.category_id} onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, category_id: e.target.value })}>
+                  <option value="">Seleccionar categoría</option>
+                  {categorias.map((cat) => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                </select>
+
                 <input style={styles.input} placeholder="Unidad" value={nuevoMaterial.unidad} onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, unidad: e.target.value })} />
                 <input style={styles.input} type="number" placeholder="Stock" value={nuevoMaterial.stock} onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, stock: e.target.value })} />
                 <input style={styles.input} type="number" placeholder="Costo unitario" value={nuevoMaterial.costo_unitario} onChange={(e) => setNuevoMaterial({ ...nuevoMaterial, costo_unitario: e.target.value })} />
               </div>
-              <button style={styles.primaryButton} onClick={agregarMaterial}>Agregar material</button>
+
+              {(puede("inventario") || puede("admin")) && <button style={styles.primaryButton} onClick={agregarMaterial}>Agregar material</button>}
             </Panel>
 
-            <Panel title="Inventario actual" subtitle="Entradas, salidas y stock">
+            <Panel title="Inventario">
               <div style={styles.tableWrap}>
                 <table style={styles.table}>
                   <thead>
@@ -629,8 +636,12 @@ export default function Home() {
                         <td>{item.stock || 0} {item.unidad || ""}</td>
                         <td>RD$ {Number(item.costo_unitario || 0).toLocaleString("es-DO")}</td>
                         <td>
-                          <button style={styles.smallGreenButton} onClick={() => ajustarStock(item, "entrada")}>Entrada</button>
-                          <button style={styles.smallRedButton} onClick={() => ajustarStock(item, "salida")}>Salida</button>
+                          {(puede("inventario") || puede("admin")) && (
+                            <>
+                              <button style={styles.smallGreenButton} onClick={() => ajustarStock(item, "entrada")}>Entrada</button>
+                              <button style={styles.smallRedButton} onClick={() => ajustarStock(item, "salida")}>Salida</button>
+                            </>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -642,23 +653,19 @@ export default function Home() {
         )}
 
         {activeModule === "produccion" && (
-          <Panel title="Producción por orden" subtitle="Descuenta material y guarda movimiento">
+          <Panel title="Producción por orden">
             <div style={styles.formGrid}>
               <select style={styles.input} value={produccion.orden_id} onChange={(e) => setProduccion({ ...produccion, orden_id: e.target.value })}>
                 <option value="">Seleccionar orden</option>
-                {ordenes.map((o) => (
-                  <option key={o.id} value={o.id}>{o.proyecto} - {o.cliente_nombre}</option>
-                ))}
+                {ordenes.map((o) => <option key={o.id} value={o.id}>{o.proyecto} - {o.cliente_nombre}</option>)}
               </select>
 
               <select style={styles.input} value={produccion.item_id} onChange={(e) => setProduccion({ ...produccion, item_id: e.target.value })}>
                 <option value="">Seleccionar material</option>
-                {inventario.map((item) => (
-                  <option key={item.id} value={item.id}>{item.nombre} — Stock: {item.stock} {item.unidad}</option>
-                ))}
+                {inventario.map((i) => <option key={i.id} value={i.id}>{i.nombre} - Stock: {i.stock}</option>)}
               </select>
 
-              <input style={styles.input} type="number" placeholder="Cantidad usada" value={produccion.cantidad} onChange={(e) => setProduccion({ ...produccion, cantidad: e.target.value })} />
+              <input style={styles.input} type="number" placeholder="Cantidad" value={produccion.cantidad} onChange={(e) => setProduccion({ ...produccion, cantidad: e.target.value })} />
               <input style={styles.input} placeholder="Notas" value={produccion.notas} onChange={(e) => setProduccion({ ...produccion, notas: e.target.value })} />
             </div>
 
@@ -667,14 +674,12 @@ export default function Home() {
               <span>RD$ {costoProduccion.toLocaleString("es-DO")}</span>
             </div>
 
-            <button style={styles.primaryButton} onClick={registrarProduccion}>
-              Registrar producción y rebajar inventario
-            </button>
+            {(puede("produccion") || puede("admin")) && <button style={styles.primaryButton} onClick={registrarProduccion}>Registrar producción</button>}
           </Panel>
         )}
 
         {activeModule === "historial" && (
-          <Panel title="Historial de movimientos" subtitle="Control completo de entradas, salidas y producción">
+          <Panel title="Historial">
             <Table
               headers={["Fecha", "Tipo", "Material", "Cantidad", "Antes", "Después", "Orden"]}
               rows={movimientos.map((m) => [
@@ -690,29 +695,111 @@ export default function Home() {
           </Panel>
         )}
 
-        {activeModule === "whatsapp" && (
-          <Panel title="WhatsApp automático" subtitle="Enviar mensaje directo al cliente">
-            <div style={styles.formGrid}>
-              <input style={styles.input} placeholder="Teléfono. Ej: 18096905636" value={whatsapp.telefono} onChange={(e) => setWhatsapp({ ...whatsapp, telefono: e.target.value })} />
-              <textarea style={{ ...styles.input, minHeight: 120 }} placeholder="Mensaje" value={whatsapp.mensaje} onChange={(e) => setWhatsapp({ ...whatsapp, mensaje: e.target.value })} />
-            </div>
-            <button style={styles.whatsappButton} onClick={abrirWhatsApp}>Abrir WhatsApp</button>
+        {activeModule === "cortes" && (
+          <>
+            <Panel title="Corte visual y optimización básica">
+              <div style={styles.formGrid}>
+                <input style={styles.input} placeholder="Ancho hoja mm" value={corte.sheetW} onChange={(e) => setCorte({ ...corte, sheetW: e.target.value })} />
+                <input style={styles.input} placeholder="Alto hoja mm" value={corte.sheetH} onChange={(e) => setCorte({ ...corte, sheetH: e.target.value })} />
+                <input style={styles.input} placeholder="Nombre pieza" value={corte.pieceName} onChange={(e) => setCorte({ ...corte, pieceName: e.target.value })} />
+                <input style={styles.input} placeholder="Ancho pieza" value={corte.pieceW} onChange={(e) => setCorte({ ...corte, pieceW: e.target.value })} />
+                <input style={styles.input} placeholder="Alto pieza" value={corte.pieceH} onChange={(e) => setCorte({ ...corte, pieceH: e.target.value })} />
+                <input style={styles.input} placeholder="Cantidad" value={corte.qty} onChange={(e) => setCorte({ ...corte, qty: e.target.value })} />
+              </div>
+
+              <button style={styles.primaryButton} onClick={agregarPieza}>Agregar pieza</button>
+              <button style={styles.darkButton} onClick={optimizarCorte}>Optimizar</button>
+              <button style={styles.darkButton} onClick={imprimir}>Imprimir corte</button>
+            </Panel>
+
+            <Panel title="Vista de corte">
+              <CutView sheetW={Number(corte.sheetW)} sheetH={Number(corte.sheetH)} layout={layoutCorte} />
+            </Panel>
+
+            <Panel title="Lista de piezas">
+              <Table headers={["Pieza", "Ancho", "Alto"]} rows={piezas.map((p) => [p.name, String(p.w), String(p.h)])} />
+            </Panel>
+          </>
+        )}
+
+        {activeModule === "imprimir" && (
+          <Panel title="Impresión rápida">
+            <button style={styles.primaryButton} onClick={imprimir}>Imprimir pantalla actual</button>
           </Panel>
         )}
+
+        {activeModule === "admin" && profile?.role === "admin" && (
+          <>
+            <Panel title="Crear categoría de inventario">
+              <div style={styles.formGrid}>
+                <input style={styles.input} placeholder="Categoría" value={nuevaCategoria.name} onChange={(e) => setNuevaCategoria({ ...nuevaCategoria, name: e.target.value })} />
+                <input style={styles.input} placeholder="Descripción" value={nuevaCategoria.description} onChange={(e) => setNuevaCategoria({ ...nuevaCategoria, description: e.target.value })} />
+              </div>
+              <button style={styles.primaryButton} onClick={crearCategoria}>Crear categoría</button>
+            </Panel>
+
+            <Panel title="Usuarios y roles">
+              <div style={styles.tableWrap}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>Nombre</th>
+                      <th>Rol</th>
+                      <th>Activo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {usuarios.map((u) => (
+                      <tr key={u.id}>
+                        <td>{u.full_name || u.id}</td>
+                        <td>
+                          <select style={styles.inputSmall} value={u.role || "lectura"} onChange={(e) => cambiarRolUsuario(u.id, e.target.value)}>
+                            <option value="admin">Admin</option>
+                            <option value="inventario">Inventario</option>
+                            <option value="produccion">Producción</option>
+                            <option value="ventas">Ventas</option>
+                            <option value="lectura">Lectura</option>
+                          </select>
+                        </td>
+                        <td>
+                          <select style={styles.inputSmall} value={u.is_active ? "true" : "false"} onChange={(e) => cambiarEstadoUsuario(u.id, e.target.value === "true")}>
+                            <option value="true">Activo</option>
+                            <option value="false">Inactivo</option>
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+          </>
+        )}
       </section>
+
+      <style jsx global>{`
+        @media print {
+          .no-print {
+            display: none !important;
+          }
+          body {
+            background: white !important;
+          }
+        }
+      `}</style>
     </main>
   );
 }
 
-function MenuButton({ label, icon, active, onClick }: any) {
+function MenuButton({ label, active, onClick }: any) {
   return (
     <button onClick={onClick} style={active ? styles.menuActive : styles.menuButton}>
-      <span>{icon}</span> {label}
+      {label}
     </button>
   );
 }
 
-function StatCard({ title, value }: { title: string; value: string }) {
+function StatCard({ title, value }: any) {
   return (
     <div style={styles.statCard}>
       <p>{title}</p>
@@ -721,30 +808,27 @@ function StatCard({ title, value }: { title: string; value: string }) {
   );
 }
 
-function Panel({ title, subtitle, children }: any) {
+function Panel({ title, children }: any) {
   return (
     <section style={styles.panel}>
-      <div style={styles.panelHeader}>
-        <h3>{title}</h3>
-        <span>{subtitle}</span>
-      </div>
+      <h3>{title}</h3>
       {children}
     </section>
   );
 }
 
-function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
+function Table({ headers, rows }: any) {
   return (
     <div style={styles.tableWrap}>
       <table style={styles.table}>
         <thead>
-          <tr>{headers.map((h) => <th key={h}>{h}</th>)}</tr>
+          <tr>{headers.map((h: string) => <th key={h}>{h}</th>)}</tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
-            <tr><td colSpan={headers.length} style={styles.emptyCell}>No hay datos.</td></tr>
-          ) : rows.map((row, i) => (
-            <tr key={i}>{row.map((cell, j) => <td key={j}>{cell}</td>)}</tr>
+            <tr><td colSpan={headers.length} style={styles.emptyCell}>No hay datos</td></tr>
+          ) : rows.map((r: any[], i: number) => (
+            <tr key={i}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>
           ))}
         </tbody>
       </table>
@@ -752,47 +836,250 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
   );
 }
 
-function Badge({ text }: { text: string }) {
-  const color =
-    text === "produccion" ? "#2563eb" :
-    text === "terminada" ? "#16a34a" :
-    text === "entregada" ? "#9333ea" :
-    text === "cancelada" ? "#dc2626" :
-    "#ca8a04";
+function CutView({ sheetW, sheetH, layout }: any) {
+  const scale = 500 / sheetW;
+
+  const sheets = Array.from(new Set(layout.map((p: any) => p.sheet)));
 
   return (
-    <span style={{ background: `${color}22`, color, padding: "6px 10px", borderRadius: 999, fontWeight: 800 }}>
-      {text}
-    </span>
+    <div>
+      {sheets.map((sheet: any) => (
+        <div key={sheet} style={{ marginBottom: 30 }}>
+          <h4>Hoja {sheet}</h4>
+          <div style={{
+            position: "relative",
+            width: sheetW * scale,
+            height: sheetH * scale,
+            border: "2px solid #0f172a",
+            background: "#f8fafc",
+          }}>
+            {layout.filter((p: any) => p.sheet === sheet).map((p: any) => (
+              <div key={p.id} style={{
+                position: "absolute",
+                left: p.x * scale,
+                top: p.y * scale,
+                width: p.w * scale,
+                height: p.h * scale,
+                border: "1px solid #166534",
+                background: "#bbf7d0",
+                fontSize: 10,
+                overflow: "hidden",
+                padding: 2,
+              }}>
+                {p.name}<br />{p.w}x{p.h}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
 const styles: any = {
-  app: { minHeight: "100vh", display: "flex", background: "#f4f7fb", color: "#0f172a", fontFamily: "Arial, sans-serif" },
-  sidebar: { width: 290, background: "linear-gradient(180deg, #020617, #0f172a)", color: "white", padding: 24, display: "flex", flexDirection: "column", justifyContent: "space-between" },
-  logo: { margin: 0, fontSize: 28, color: "#22c55e", letterSpacing: 1 },
-  logoSub: { marginTop: 6, marginBottom: 30, color: "#94a3b8", fontSize: 14 },
-  menuButton: { width: "100%", border: "none", background: "transparent", color: "#cbd5e1", padding: "14px 16px", borderRadius: 14, textAlign: "left", fontWeight: 800, cursor: "pointer", fontSize: 15, display: "flex", gap: 10, alignItems: "center", marginBottom: 10 },
-  menuActive: { width: "100%", border: "none", background: "linear-gradient(90deg, #22c55e, #86efac)", color: "#052e16", padding: "14px 16px", borderRadius: 14, textAlign: "left", fontWeight: 900, cursor: "pointer", fontSize: 15, display: "flex", gap: 10, alignItems: "center", marginBottom: 10 },
-  sidebarFooter: { color: "#94a3b8", fontSize: 13, display: "flex", flexDirection: "column", gap: 4 },
-  content: { flex: 1, padding: 34, overflow: "auto" },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 },
-  pageTitle: { margin: 0, fontSize: 34, fontWeight: 900 },
-  pageSubtitle: { color: "#64748b", marginTop: 6 },
-  refreshButton: { background: "#0f172a", color: "white", border: "none", borderRadius: 14, padding: "13px 18px", fontWeight: 900, cursor: "pointer" },
-  cardsGrid: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 18, marginBottom: 24 },
-  statCard: { background: "white", borderRadius: 22, padding: 24, boxShadow: "0 12px 35px rgba(15,23,42,.08)", border: "1px solid #e2e8f0" },
-  panel: { background: "white", borderRadius: 24, padding: 24, boxShadow: "0 12px 35px rgba(15,23,42,.08)", border: "1px solid #e2e8f0", marginBottom: 24 },
-  panelHeader: { marginBottom: 18 },
-  formGrid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 },
-  input: { width: "100%", border: "1px solid #cbd5e1", borderRadius: 14, padding: "14px 15px", outline: "none", fontSize: 14, background: "#fff" },
-  inputSmall: { border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 10px", background: "white" },
-  primaryButton: { marginTop: 18, background: "linear-gradient(90deg, #16a34a, #22c55e)", color: "white", border: "none", borderRadius: 16, padding: "14px 22px", fontWeight: 900, cursor: "pointer" },
-  whatsappButton: { marginTop: 18, background: "#16a34a", color: "white", border: "none", borderRadius: 16, padding: "14px 22px", fontWeight: 900, cursor: "pointer" },
-  tableWrap: { overflowX: "auto" },
-  table: { width: "100%", borderCollapse: "collapse" },
-  emptyCell: { padding: 20, textAlign: "center", color: "#64748b" },
-  smallGreenButton: { background: "#dcfce7", color: "#166534", border: "none", borderRadius: 10, padding: "8px 10px", marginRight: 8, fontWeight: 800, cursor: "pointer" },
-  smallRedButton: { background: "#fee2e2", color: "#991b1b", border: "none", borderRadius: 10, padding: "8px 10px", fontWeight: 800, cursor: "pointer" },
-  costBox: { marginTop: 18, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 16, padding: 18, display: "flex", justifyContent: "space-between", color: "#166534" },
+  loginPage: {
+    minHeight: "100vh",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#020617",
+  },
+  loginBox: {
+    width: 360,
+    background: "white",
+    padding: 30,
+    borderRadius: 20,
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+  },
+  app: {
+    minHeight: "100vh",
+    display: "flex",
+    background: "#f4f7fb",
+    color: "#0f172a",
+    fontFamily: "Arial, sans-serif",
+  },
+  sidebar: {
+    width: 290,
+    background: "linear-gradient(180deg, #020617, #0f172a)",
+    color: "white",
+    padding: 24,
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "space-between",
+  },
+  logo: {
+    margin: 0,
+    fontSize: 28,
+    color: "#22c55e",
+  },
+  logoSub: {
+    color: "#94a3b8",
+    marginBottom: 30,
+  },
+  menuButton: {
+    width: "100%",
+    background: "transparent",
+    color: "#cbd5e1",
+    border: "none",
+    padding: "14px",
+    textAlign: "left",
+    borderRadius: 12,
+    fontWeight: 800,
+    cursor: "pointer",
+    marginBottom: 8,
+  },
+  menuActive: {
+    width: "100%",
+    background: "#22c55e",
+    color: "#052e16",
+    border: "none",
+    padding: "14px",
+    textAlign: "left",
+    borderRadius: 12,
+    fontWeight: 900,
+    cursor: "pointer",
+    marginBottom: 8,
+  },
+  sidebarFooter: {
+    color: "#94a3b8",
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  logoutButton: {
+    background: "#ef4444",
+    color: "white",
+    border: "none",
+    padding: 10,
+    borderRadius: 10,
+    cursor: "pointer",
+  },
+  content: {
+    flex: 1,
+    padding: 34,
+    overflow: "auto",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    marginBottom: 28,
+  },
+  pageTitle: {
+    margin: 0,
+    fontSize: 34,
+    fontWeight: 900,
+  },
+  pageSubtitle: {
+    color: "#64748b",
+  },
+  refreshButton: {
+    background: "#0f172a",
+    color: "white",
+    border: "none",
+    borderRadius: 14,
+    padding: "13px 18px",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  cardsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: 18,
+  },
+  statCard: {
+    background: "white",
+    borderRadius: 22,
+    padding: 24,
+    border: "1px solid #e2e8f0",
+    boxShadow: "0 12px 35px rgba(15,23,42,.08)",
+  },
+  panel: {
+    background: "white",
+    borderRadius: 24,
+    padding: 24,
+    border: "1px solid #e2e8f0",
+    boxShadow: "0 12px 35px rgba(15,23,42,.08)",
+    marginBottom: 24,
+  },
+  formGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 14,
+  },
+  input: {
+    width: "100%",
+    border: "1px solid #cbd5e1",
+    borderRadius: 14,
+    padding: "14px 15px",
+    fontSize: 14,
+  },
+  inputSmall: {
+    border: "1px solid #cbd5e1",
+    borderRadius: 10,
+    padding: "8px 10px",
+  },
+  primaryButton: {
+    marginTop: 18,
+    background: "#16a34a",
+    color: "white",
+    border: "none",
+    borderRadius: 16,
+    padding: "14px 22px",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  darkButton: {
+    marginTop: 18,
+    marginLeft: 10,
+    background: "#0f172a",
+    color: "white",
+    border: "none",
+    borderRadius: 16,
+    padding: "14px 22px",
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  tableWrap: {
+    overflowX: "auto",
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+  },
+  emptyCell: {
+    padding: 20,
+    textAlign: "center",
+    color: "#64748b",
+  },
+  smallGreenButton: {
+    background: "#dcfce7",
+    color: "#166534",
+    border: "none",
+    borderRadius: 10,
+    padding: "8px 10px",
+    marginRight: 8,
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  smallRedButton: {
+    background: "#fee2e2",
+    color: "#991b1b",
+    border: "none",
+    borderRadius: 10,
+    padding: "8px 10px",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  costBox: {
+    marginTop: 18,
+    background: "#f0fdf4",
+    border: "1px solid #bbf7d0",
+    borderRadius: 16,
+    padding: 18,
+    display: "flex",
+    justifyContent: "space-between",
+    color: "#166534",
+  },
 };
