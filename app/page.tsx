@@ -432,7 +432,7 @@ export default function Home() {
       stockAfter,
       relatedOrder: `${orden.proyecto} - ${orden.cliente_nombre}`,
       materialUsed: item.name,
-      notes: production.notes || null,
+      notes: production.notes || undefined,
     });
 
     setProduction({
