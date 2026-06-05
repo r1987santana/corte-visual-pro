@@ -506,6 +506,11 @@ function getStoredShellUser(): AppUser | null {
   }
 }
 
+function getStoredShellToken() {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem("rdwood_session_token") || localStorage.getItem("session_token") || "";
+}
+
 export default function SaaSLayoutShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -529,6 +534,16 @@ export default function SaaSLayoutShell({ children }: { children: React.ReactNod
     async function init() {
       setLoading(true);
       const cachedUser = getStoredShellUser();
+      const token = getStoredShellToken();
+      if (cachedUser && !token) {
+        clearLocalSession();
+        sessionStorage.setItem("rdwood_lock_message", "Sesion expirada. Entra de nuevo para activar la IA y las APIs seguras.");
+        router.push("/login");
+        router.refresh();
+        setLoading(false);
+        return;
+      }
+
       if (cachedUser) setUser(cachedUser);
 
       const [s, u] = await Promise.all([

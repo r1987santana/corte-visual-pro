@@ -35,7 +35,7 @@ export function getStoredUser(): AuthUser | null {
 
 export function getStoredToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY) || localStorage.getItem("session_token");
 }
 
 export function authHeaders(extra?: HeadersInit): HeadersInit {

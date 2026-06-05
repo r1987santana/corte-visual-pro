@@ -247,6 +247,13 @@ export default function ModuleAIAssistant() {
       });
 
       const data = await response.json();
+      if (!response.ok || data?.ok === false) {
+        if (response.status === 401) {
+          throw new Error("Sesion requerida. Cierra sesion y entra de nuevo para activar la IA.");
+        }
+        throw new Error(data?.error || data?.message || "No pude responder ahora mismo.");
+      }
+
       const action = data?.action?.type && data.action.type !== "none" ? data.action : undefined;
       const assistantContent = miniFormat(data.answer || data.response || data.message || "No pude responder ahora mismo.");
 
