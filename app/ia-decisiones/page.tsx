@@ -27,6 +27,7 @@ type Decision = {
   summary: string;
   risk: "low" | "medium" | "high" | "critical";
   status: "pending" | "approved" | "rejected" | "executed" | "cancelled";
+  payload?: Record<string, any>;
   route?: string | null;
   requiresApproval?: boolean;
   createdAt?: string;
@@ -41,6 +42,7 @@ type MonitorEvent = {
   severity: "info" | "warning" | "danger" | "critical";
   riskScore: number;
   status: string;
+  payload?: Record<string, any>;
   createdAt?: string;
 };
 
@@ -62,6 +64,7 @@ type AITask = {
   summary: string;
   status: "open" | "in_progress" | "done" | "cancelled";
   priority: "low" | "normal" | "high" | "critical";
+  payload?: Record<string, any>;
   route?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -111,6 +114,11 @@ function formatDate(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString("es-DO");
+}
+
+function formatMoney(value?: number) {
+  const n = Number(value || 0);
+  return `RD$${Math.round(n).toLocaleString("en-US")}`;
 }
 
 function normalizeModule(value: string) {
@@ -371,6 +379,7 @@ export default function AIDecisionsPage() {
                     </div>
                     <h2 className="mt-3 text-lg font-black text-white">{task.title}</h2>
                     <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">{task.summary}</p>
+                    <ActionPlan payload={task.payload} />
                     <p className="mt-3 text-xs font-bold text-slate-500">{formatDate(task.createdAt)}</p>
                   </div>
 
@@ -436,6 +445,7 @@ export default function AIDecisionsPage() {
                       </div>
                       <h2 className="mt-3 text-lg font-black text-white">{decision.title}</h2>
                       <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">{decision.summary}</p>
+                      <ActionPlan payload={decision.payload} />
                       <p className="mt-3 text-xs font-bold text-slate-500">{decision.actionType} - {formatDate(decision.createdAt)}</p>
                     </div>
 
@@ -492,6 +502,7 @@ export default function AIDecisionsPage() {
                       </div>
                       <h2 className="mt-3 text-base font-black text-white">{event.title}</h2>
                       <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">{event.summary}</p>
+                      <ActionPlan payload={event.payload} compact />
                       <p className="mt-3 text-xs font-bold text-slate-500">{normalizeModule(event.module)} - {formatDate(event.createdAt)}</p>
                     </div>
                     <Eye className="mt-1 shrink-0 text-cyan-300" size={18} />
@@ -520,6 +531,56 @@ export default function AIDecisionsPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+function ActionPlan({ payload, compact = false }: { payload?: Record<string, any>; compact?: boolean }) {
+  const pricing = payload?.pricing;
+  if (!pricing) return null;
+
+  const steps = Array.isArray(pricing.nextSteps) ? pricing.nextSteps.slice(0, compact ? 2 : 4) : [];
+
+  return (
+    <div className="mt-4 rounded-2xl border border-cyan-400/20 bg-cyan-500/[0.07] p-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-cyan-200">Accion IA propuesta</p>
+      <p className="mt-2 text-sm font-black leading-6 text-white">{pricing.actionSummary}</p>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <MiniMetric label="Costo actual" value={formatMoney(pricing.currentCost)} tone="slate" />
+        <MiniMetric label="Costo sugerido" value={formatMoney(pricing.suggestedCost)} tone="amber" />
+        <MiniMetric label="Venta sugerida" value={formatMoney(pricing.suggestedPrice)} tone="emerald" />
+      </div>
+
+      {!compact && pricing.basis ? (
+        <p className="mt-3 text-xs font-semibold leading-5 text-slate-300">{pricing.basis}</p>
+      ) : null}
+
+      {steps.length ? (
+        <div className="mt-3 grid gap-2">
+          {steps.map((step: string, index: number) => (
+            <div key={`${step}-${index}`} className="rounded-xl border border-white/10 bg-slate-950/55 px-3 py-2 text-xs font-bold leading-5 text-slate-200">
+              {index + 1}. {step}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MiniMetric({ label, value, tone }: { label: string; value: string; tone: "slate" | "amber" | "emerald" }) {
+  const color =
+    tone === "amber"
+      ? "border-amber-400/25 bg-amber-500/10 text-amber-100"
+      : tone === "emerald"
+        ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-100"
+        : "border-slate-500/25 bg-slate-500/10 text-slate-100";
+
+  return (
+    <div className={cx("rounded-xl border px-3 py-2", color)}>
+      <p className="text-[9px] font-black uppercase tracking-[0.18em] opacity-70">{label}</p>
+      <p className="mt-1 text-sm font-black">{value}</p>
+    </div>
   );
 }
 

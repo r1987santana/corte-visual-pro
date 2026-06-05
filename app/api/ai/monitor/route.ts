@@ -76,6 +76,10 @@ function costOf(row: any) {
   return toNumber(row.cost ?? row.unit_cost ?? row.costo ?? row.costo_unitario ?? row.cost_price ?? row.price_cost);
 }
 
+function priceOf(row: any) {
+  return toNumber(row.sale_price ?? row.price ?? row.precio_venta ?? row.venta ?? row.unit_price);
+}
+
 function quoteMargin(row: any) {
   return toNumber(row.margin ?? row.margin_percent ?? row.profit_margin ?? row.margen);
 }
@@ -87,6 +91,78 @@ function quoteTotal(row: any) {
 function isOpenStatus(value: any) {
   const status = text(value).toLowerCase();
   return !["cerrado", "closed", "completado", "completed", "cancelado", "cancelled", "entregado"].includes(status);
+}
+
+function money(value: number) {
+  return `RD$${Math.round(value).toLocaleString("en-US")}`;
+}
+
+function servicePricingHint(row: any) {
+  const name = rowName(row);
+  const normalized = name.toLowerCase();
+  const unit = text(row.unit || row.unidad || "unidad");
+  const currentCost = costOf(row);
+  const currentPrice = priceOf(row);
+
+  let suggestedCost = 0;
+  let suggestedPrice = currentPrice;
+  let basis = "Usar una base provisional y validar contra costo real antes de cotizar.";
+
+  if (normalized.includes("instal")) {
+    suggestedCost = 2500;
+    suggestedPrice = currentPrice > 0 ? currentPrice : 5000;
+    basis = "Servicio de instalacion: costo operativo base por salida/cuadrilla y precio minimo para proteger margen.";
+  } else if (normalized.includes("transporte")) {
+    suggestedCost = 1500;
+    suggestedPrice = currentPrice > 0 ? currentPrice : 3000;
+    basis = "Servicio de transporte: combustible, tiempo y desgaste con precio minimo por entrega local.";
+  } else if (normalized.includes("render") || normalized.includes("levantamiento")) {
+    suggestedCost = currentPrice > 0 ? Math.round(currentPrice * 0.55) : 2500;
+    suggestedPrice = currentPrice > 0 ? currentPrice : 5000;
+    basis = "Render y levantamiento: costo tecnico estimado en 55% del precio actual.";
+  } else if (normalized.includes("canteo")) {
+    suggestedCost = currentPrice > 0 ? Math.max(1, Math.round(currentPrice * 0.5)) : 18;
+    suggestedPrice = currentPrice > 0 ? currentPrice : 35;
+    basis = "Canteo: costo estimado por metro en 50% del precio de venta.";
+  } else if (normalized.includes("perfor")) {
+    suggestedCost = 10;
+    suggestedPrice = currentPrice > 0 ? currentPrice : 25;
+    basis = "Perforacion: costo base por unidad de operacion con margen minimo.";
+  } else if (normalized.includes("cnc") || normalized.includes("corte")) {
+    suggestedCost = 700;
+    suggestedPrice = currentPrice > 0 ? currentPrice : 1500;
+    basis = "Corte CNC: costo base por setup/servicio para no cotizar produccion en cero.";
+  } else if (currentPrice > 0) {
+    suggestedCost = Math.max(1, Math.round(currentPrice * 0.55));
+    basis = "Costo sugerido calculado como 55% del precio de venta actual.";
+  } else {
+    suggestedCost = 1000;
+    suggestedPrice = 2000;
+  }
+
+  const actionSummary = `Actualizar ${name}: costo sugerido ${money(suggestedCost)} y precio venta sugerido ${money(suggestedPrice)} por ${unit}.`;
+
+  return {
+    product: name,
+    sku: text(row.code || row.sku),
+    unit,
+    currentCost,
+    currentPrice,
+    suggestedCost,
+    suggestedPrice,
+    basis,
+    actionSummary,
+    targetFields: {
+      cost: ["unit_cost", "cost", "cost_price", "purchase_cost"],
+      price: ["sale_price", "price", "unit_price", "precio_venta"],
+    },
+    nextSteps: [
+      `Abrir inventario y buscar ${name}.`,
+      `Actualizar costo a ${money(suggestedCost)}.`,
+      `Actualizar precio venta a ${money(suggestedPrice)} si esta en cero o por debajo del minimo.`,
+      "Validar margen antes de cotizar o producir.",
+    ],
+  };
 }
 
 async function upsertMonitorEvent(supabase: any, input: MonitorEventInput) {
@@ -137,6 +213,15 @@ async function upsertDecision(supabase: any, input: MonitorEventInput, userEmail
   const id = safeDecisionId(input);
   const date = now();
   const requiresApproval = shouldRequireApproval(input.decision.risk, input.decision.actionType);
+
+  const { data: existing } = await supabase
+    .from(DECISIONS_TABLE)
+    .select("status")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (existing?.status && existing.status !== "pending") return id;
+
   const record = {
     id,
     module: input.module,
@@ -235,22 +320,34 @@ function buildMonitorEvents(data: {
 
   missingCost.forEach((row) => {
     const name = rowName(row);
+    const pricing = servicePricingHint(row);
     events.push({
       module: "inventario",
       eventType: "missing_inventory_cost",
       title: `Costo pendiente: ${name}`,
-      summary: `${name} no tiene costo valido. Esto afecta margen, cotizaciones y rentabilidad.`,
+      summary: `${name} no tiene costo valido. Sugerencia IA: ${pricing.actionSummary}`,
       severity: "warning",
       riskScore: 64,
       entityType: "inventory",
       entityId: text(row.id),
-      payload: { product: name, cost: costOf(row) },
+      payload: {
+        inventoryId: text(row.id),
+        cost: costOf(row),
+        price: priceOf(row),
+        pricing,
+      },
       decision: {
-        actionType: "review_inventory_costs",
-        title: `Actualizar costo de ${name}`,
-        summary: `Revisar costo unitario de ${name} antes de cotizar o producir.`,
+        actionType: "update_inventory_service_pricing",
+        title: `Actualizar ${name}: ${money(pricing.suggestedCost)} costo / ${money(pricing.suggestedPrice)} venta`,
+        summary: `Accion propuesta: ${pricing.actionSummary} Actual: costo ${money(pricing.currentCost)}, precio ${money(pricing.currentPrice)}. Motivo: ${pricing.basis}`,
         risk: "medium",
         route: "/inventario-inteligente",
+        payload: {
+          inventoryId: text(row.id),
+          pricing,
+          executionPlan: pricing.actionSummary,
+          requiresHumanValidation: true,
+        },
       },
     });
   });
