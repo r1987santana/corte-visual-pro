@@ -102,6 +102,17 @@ create index if not exists idx_ai_tasks_status_created
 create index if not exists idx_ai_tasks_decision
   on public.ai_tasks (decision_id);
 
+alter table public.ai_decision_queue enable row level security;
+alter table public.ai_monitor_events enable row level security;
+alter table public.ai_tasks enable row level security;
+
+revoke all on table public.ai_decision_queue from anon, authenticated;
+revoke all on table public.ai_monitor_events from anon, authenticated;
+revoke all on table public.ai_tasks from anon, authenticated;
+grant all on table public.ai_decision_queue to service_role;
+grant all on table public.ai_monitor_events to service_role;
+grant all on table public.ai_tasks to service_role;
+
 create table if not exists public.ai_pricing_references (
   id text primary key,
   product_key text not null,
@@ -132,6 +143,48 @@ create index if not exists idx_ai_pricing_references_product_observed
 
 create index if not exists idx_ai_pricing_references_source_type
   on public.ai_pricing_references (source_type, observed_at desc);
+
+alter table public.ai_pricing_references enable row level security;
+
+revoke all on table public.ai_pricing_references from anon, authenticated;
+grant all on table public.ai_pricing_references to service_role;
+
+create table if not exists public.ai_pricing_learning (
+  id text primary key,
+  task_id text,
+  decision_id text,
+  inventory_id text,
+  product_key text not null,
+  product_name text not null,
+  action text not null,
+  suggested_cost numeric,
+  suggested_price numeric,
+  approved_cost numeric,
+  approved_price numeric,
+  previous_cost numeric,
+  previous_price numeric,
+  source_type text,
+  source_label text,
+  confidence numeric,
+  outcome text not null default 'applied',
+  notes text,
+  payload jsonb not null default '{}'::jsonb,
+  created_by text,
+  created_at timestamptz not null default now(),
+  constraint ai_pricing_learning_outcome_check
+    check (outcome in ('applied', 'completed', 'adjusted', 'rejected', 'cancelled'))
+);
+
+create index if not exists idx_ai_pricing_learning_product_created
+  on public.ai_pricing_learning (product_key, created_at desc);
+
+create index if not exists idx_ai_pricing_learning_task
+  on public.ai_pricing_learning (task_id);
+
+alter table public.ai_pricing_learning enable row level security;
+
+revoke all on table public.ai_pricing_learning from anon, authenticated;
+grant all on table public.ai_pricing_learning to service_role;
 
 insert into public.ai_pricing_references (
   id, product_key, product_name, category, unit, source_type, source_name,

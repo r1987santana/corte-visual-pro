@@ -32,6 +32,11 @@ create index if not exists idx_ai_pricing_references_product_observed
 create index if not exists idx_ai_pricing_references_source_type
   on public.ai_pricing_references (source_type, observed_at desc);
 
+alter table public.ai_pricing_references enable row level security;
+
+revoke all on table public.ai_pricing_references from anon, authenticated;
+grant all on table public.ai_pricing_references to service_role;
+
 insert into public.ai_pricing_references (
   id, product_key, product_name, category, unit, source_type, source_name,
   observed_cost, observed_price, confidence, notes, metadata

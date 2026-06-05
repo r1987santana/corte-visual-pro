@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   Brain,
@@ -8,6 +9,7 @@ import {
   CheckSquare,
   Clock3,
   ClipboardCheck,
+  DollarSign,
   ExternalLink,
   Eye,
   ListTodo,
@@ -135,6 +137,7 @@ export default function AIDecisionsPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [setupNotice, setSetupNotice] = useState("");
+  const [applyingPrice, setApplyingPrice] = useState<string | null>(null);
 
   const stats = useMemo(() => {
     const criticalEvents = events.filter((event) => event.severity === "critical" || event.severity === "danger").length;
@@ -255,6 +258,36 @@ export default function AIDecisionsPage() {
     }
   }
 
+  function canApplyPricing(task: AITask) {
+    const pricing = task.payload?.pricing;
+    return Boolean(task.payload?.inventoryId && pricing?.suggestedCost && pricing?.suggestedPrice && task.status !== "done");
+  }
+
+  async function applyTaskPricing(task: AITask) {
+    setApplyingPrice(task.id);
+    setMessage("");
+    setError("");
+    try {
+      const response = await apiFetch("/api/ai/pricing/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: task.id }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.message || payload.error || "No se pudo aplicar el precio.");
+
+      const applied = payload.applied || {};
+      setMessage(
+        `Precio aplicado: costo ${formatMoney(applied.previousCost)} -> ${formatMoney(applied.approvedCost)}, venta ${formatMoney(applied.previousPrice)} -> ${formatMoney(applied.approvedPrice)}.`
+      );
+      await loadData();
+    } catch (err: any) {
+      setError(err?.message || "Error aplicando precio IA.");
+    } finally {
+      setApplyingPrice(null);
+    }
+  }
+
   async function updateEvent(event: MonitorEvent, status: "acknowledged" | "resolved" | "dismissed") {
     setMessage("");
     setError("");
@@ -295,6 +328,13 @@ export default function AIDecisionsPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
+              <Link
+                href="/ia-precios"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-black text-slate-100 hover:bg-white/[0.08]"
+              >
+                <DollarSign size={18} />
+                Alimentar precios
+              </Link>
               <button
                 type="button"
                 onClick={loadData}
@@ -384,6 +424,17 @@ export default function AIDecisionsPage() {
                   </div>
 
                   <div className="grid min-w-max grid-cols-2 gap-2">
+                    {canApplyPricing(task) ? (
+                      <button
+                        type="button"
+                        onClick={() => applyTaskPricing(task)}
+                        disabled={applyingPrice === task.id}
+                        className="col-span-2 inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-xs font-black text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60"
+                      >
+                        {applyingPrice === task.id ? <Loader2 size={15} className="animate-spin" /> : <DollarSign size={15} />}
+                        Aplicar precio
+                      </button>
+                    ) : null}
                     {task.status === "open" ? (
                       <button
                         type="button"

@@ -202,7 +202,7 @@ export const AI_MODULE_CONFIGS: Record<AIModuleKey, AIModuleConfig> = {
 };
 
 export function getModuleKeyFromPath(pathname: string): AIModuleKey {
-  if (pathname.startsWith("/dashboard-ceo") || pathname.startsWith("/ia-decisiones") || pathname.startsWith("/pruebas-fabrica") || pathname.startsWith("/ceo") || pathname.startsWith("/contabilidad") || pathname.startsWith("/dashboard-financiero") || pathname.startsWith("/pagos")) return "dashboard_ceo";
+  if (pathname.startsWith("/dashboard-ceo") || pathname.startsWith("/ia-decisiones") || pathname.startsWith("/ia-precios") || pathname.startsWith("/pruebas-fabrica") || pathname.startsWith("/ceo") || pathname.startsWith("/contabilidad") || pathname.startsWith("/dashboard-financiero") || pathname.startsWith("/pagos")) return "dashboard_ceo";
   if (pathname.startsWith("/agenda") || pathname.startsWith("/clientes") || pathname.startsWith("/levantamientos") || pathname.startsWith("/proyectos")) return "agenda";
   if (pathname.startsWith("/cotizaciones") || pathname.startsWith("/cotizador-automatico") || pathname.startsWith("/contratos") || pathname.startsWith("/servicios-portal")) return "cotizaciones";
   if (pathname.startsWith("/ventas") || pathname.startsWith("/facturas") || pathname.startsWith("/cuentas-por-cobrar")) return "ventas";

@@ -81,6 +81,7 @@ export function getPermissionForPath(pathname: string): PermissionKey | null {
   if (pathname.startsWith("/perfil")) return null;
   if (pathname.startsWith("/dashboard-ceo")) return "dashboard_ceo";
   if (pathname.startsWith("/ia-decisiones")) return "dashboard_ceo";
+  if (pathname.startsWith("/ia-precios")) return "dashboard_ceo";
   if (pathname.startsWith("/pruebas-fabrica")) return "dashboard_ceo";
   if (pathname.startsWith("/contabilidad")) return "dashboard_ceo";
   if (pathname.startsWith("/dashboard-financiero")) return "dashboard_ceo";
