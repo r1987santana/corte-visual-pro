@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { executeAIAction } from "./action-executor";
+import { getAIAutonomyLevel, summarizeAICapabilities } from "./level5";
 import { runIndustrialBrain } from "./brain";
 import { analyzeRisks } from "./risk-engine";
 import { buildWorkflowState } from "./workflow-engine";
@@ -36,6 +37,8 @@ export type AIOrchestratorInput = {
 
 export type AIOrchestratorResponse = {
   summary: string;
+  autonomyLevel: number;
+  capabilities: string;
   workflow: any;
   risks: string[];
   recommendations: string[];
@@ -132,9 +135,11 @@ export async function orchestrateIndustrialAI(input: AIOrchestratorInput): Promi
 
   const recommendations = [...brain.recommendations];
   const gateLines = formatGateLines(workflow);
+  const autonomyLevel = getAIAutonomyLevel();
+  const capabilities = summarizeAICapabilities();
 
   const summary = [
-    "RD WOOD IA MAESTRA",
+    `RD WOOD IA MAESTRA - NIVEL ${autonomyLevel}`,
     "",
     `Etapa actual: ${workflow.stageLabel || workflow.stage}`,
     `Progreso operativo: ${workflow.progress}%`,
@@ -147,12 +152,17 @@ export async function orchestrateIndustrialAI(input: AIOrchestratorInput): Promi
     "",
     `Riesgos detectados: ${risks.length}`,
     `Acciones sugeridas: ${brain.nextActions.length}`,
+    "",
+    "Capacidades activas:",
+    capabilities,
   ]
     .filter(Boolean)
     .join("\n");
 
   return {
     summary,
+    autonomyLevel,
+    capabilities,
     workflow,
     risks,
     recommendations,
