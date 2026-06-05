@@ -3,6 +3,7 @@ import { requireApiSession } from "@/lib/security/api-guard";
 import { shouldRequireApproval, type AIDecisionRisk, type AIDecisionStatus } from "@/lib/ai/level5";
 
 const DECISIONS_TABLE = "ai_decision_queue";
+const TASKS_TABLE = "ai_tasks";
 
 type DecisionBody = {
   id?: string;
@@ -58,8 +59,77 @@ function toClient(row: any) {
   };
 }
 
+function toTaskClient(row: any) {
+  return {
+    id: row.id,
+    decisionId: row.decision_id,
+    module: row.module,
+    title: row.title,
+    summary: row.summary,
+    status: row.status,
+    priority: row.priority,
+    route: row.route,
+    payload: row.payload || {},
+    createdBy: row.created_by,
+    assignedTo: row.assigned_to,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    completedAt: row.completed_at,
+  };
+}
+
 function isAdmin(roleKey: string) {
   return ["admin", "administrador", "super_admin"].includes(String(roleKey || "").toLowerCase());
+}
+
+function priorityFromRisk(risk: any) {
+  const normalized = normalizeRisk(risk);
+  if (normalized === "critical") return "critical";
+  if (normalized === "high") return "high";
+  if (normalized === "low") return "low";
+  return "normal";
+}
+
+function taskIdFromDecision(row: any) {
+  const raw = String(row.id || safeId()).toLowerCase().replace(/[^a-z0-9_]+/g, "_").slice(0, 130);
+  return `ai_task_${raw}`;
+}
+
+async function createTaskFromDecision(supabase: any, row: any, userEmail: string) {
+  const date = now();
+  const record = {
+    id: taskIdFromDecision(row),
+    decision_id: row.id,
+    module: row.module || "global",
+    title: row.title,
+    summary: row.summary || "Tarea generada desde una decision IA ejecutada.",
+    status: "open",
+    priority: priorityFromRisk(row.risk),
+    route: row.route || null,
+    payload: {
+      ...(row.payload || {}),
+      action_type: row.action_type,
+      source: "ai_decision_queue",
+    },
+    created_by: userEmail,
+    created_at: date,
+    updated_at: date,
+  };
+
+  const { data, error } = await supabase
+    .from(TASKS_TABLE)
+    .upsert(record, { onConflict: "id" })
+    .select("*")
+    .single();
+
+  if (error) {
+    return {
+      setupRequired: true,
+      message: "Decision ejecutada, pero falta crear la tabla ai_tasks en Supabase.",
+    };
+  }
+
+  return { setupRequired: false, task: toTaskClient(data) };
 }
 
 export async function GET(req: Request) {
@@ -176,5 +246,9 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: false, message: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, decision: toClient(data) });
+  const execution = status === "executed"
+    ? await createTaskFromDecision(session.supabase, data, session.user.email)
+    : null;
+
+  return NextResponse.json({ ok: true, decision: toClient(data), execution });
 }

@@ -5,8 +5,12 @@ import {
   AlertTriangle,
   Brain,
   CheckCircle2,
+  CheckSquare,
+  Clock3,
   ClipboardCheck,
+  ExternalLink,
   Eye,
+  ListTodo,
   Loader2,
   Play,
   RefreshCw,
@@ -50,6 +54,20 @@ type MonitorSummary = {
   sales: number;
 };
 
+type AITask = {
+  id: string;
+  decisionId?: string | null;
+  module: string;
+  title: string;
+  summary: string;
+  status: "open" | "in_progress" | "done" | "cancelled";
+  priority: "low" | "normal" | "high" | "critical";
+  route?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  completedAt?: string | null;
+};
+
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
@@ -67,6 +85,27 @@ function severityTone(severity?: string) {
   return "border-cyan-400/35 bg-cyan-500/10 text-cyan-100";
 }
 
+function priorityTone(priority?: string) {
+  if (priority === "critical") return "border-red-400/35 bg-red-500/10 text-red-100";
+  if (priority === "high") return "border-amber-400/35 bg-amber-500/10 text-amber-100";
+  if (priority === "low") return "border-emerald-400/35 bg-emerald-500/10 text-emerald-100";
+  return "border-cyan-400/35 bg-cyan-500/10 text-cyan-100";
+}
+
+function statusTone(status?: string) {
+  if (status === "done") return "border-emerald-400/35 bg-emerald-500/10 text-emerald-100";
+  if (status === "in_progress") return "border-cyan-400/35 bg-cyan-500/10 text-cyan-100";
+  if (status === "cancelled") return "border-red-400/35 bg-red-500/10 text-red-100";
+  return "border-slate-500/35 bg-slate-500/10 text-slate-100";
+}
+
+function statusLabel(status?: string) {
+  if (status === "in_progress") return "en progreso";
+  if (status === "done") return "completada";
+  if (status === "cancelled") return "cancelada";
+  return "abierta";
+}
+
 function formatDate(value?: string) {
   if (!value) return "-";
   const date = new Date(value);
@@ -81,11 +120,13 @@ function normalizeModule(value: string) {
 export default function AIDecisionsPage() {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [events, setEvents] = useState<MonitorEvent[]>([]);
+  const [tasks, setTasks] = useState<AITask[]>([]);
   const [summary, setSummary] = useState<MonitorSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [setupNotice, setSetupNotice] = useState("");
 
   const stats = useMemo(() => {
     const criticalEvents = events.filter((event) => event.severity === "critical" || event.severity === "danger").length;
@@ -99,26 +140,38 @@ export default function AIDecisionsPage() {
       criticalEvents,
       highDecisions,
       avgRisk,
+      activeTasks: tasks.length,
     };
-  }, [decisions, events]);
+  }, [decisions, events, tasks]);
 
   async function loadData() {
     setLoading(true);
     setError("");
+    setSetupNotice("");
     try {
-      const [decisionRes, eventRes] = await Promise.all([
+      const [decisionRes, eventRes, taskRes] = await Promise.all([
         apiFetch("/api/ai/decisions?status=pending"),
         apiFetch("/api/ai/monitor?status=open"),
+        apiFetch("/api/ai/tasks"),
       ]);
 
       const decisionJson = await decisionRes.json();
       const eventJson = await eventRes.json();
+      const taskJson = await taskRes.json();
 
       if (!decisionRes.ok || !decisionJson.ok) throw new Error(decisionJson.message || decisionJson.error || "No se pudieron cargar decisiones.");
       if (!eventRes.ok || !eventJson.ok) throw new Error(eventJson.message || eventJson.error || "No se pudieron cargar eventos.");
 
       setDecisions(decisionJson.decisions || []);
       setEvents(eventJson.events || []);
+
+      if (taskRes.ok && taskJson.ok) {
+        setTasks(taskJson.tasks || []);
+        if (taskJson.setupRequired) setSetupNotice(taskJson.message || "La tabla de tareas IA esta pendiente en Supabase.");
+      } else {
+        setTasks([]);
+        setSetupNotice(taskJson.message || taskJson.error || "No se pudieron cargar tareas IA.");
+      }
     } catch (err: any) {
       setError(err?.message || "Error cargando IA.");
     } finally {
@@ -157,14 +210,40 @@ export default function AIDecisionsPage() {
       const payload = await response.json();
       if (!response.ok || !payload.ok) throw new Error(payload.message || payload.error || "No se pudo actualizar la decision.");
 
-      setMessage(`Decision ${status}: ${decision.title}`);
-      await loadData();
-
-      if (status === "executed" && decision.route) {
-        window.location.href = decision.route;
+      if (status === "executed") {
+        const task = payload.execution?.task as AITask | undefined;
+        if (payload.execution?.setupRequired) {
+          setMessage(`${payload.execution.message} Ejecuta el SQL actualizado y vuelve a probar.`);
+        } else if (task) {
+          setMessage(`Tarea IA creada: ${task.title}`);
+        } else {
+          setMessage(`Decision ejecutada: ${decision.title}`);
+        }
+      } else {
+        setMessage(`Decision ${status}: ${decision.title}`);
       }
+      await loadData();
     } catch (err: any) {
       setError(err?.message || "Error actualizando decision.");
+    }
+  }
+
+  async function updateTask(task: AITask, status: AITask["status"]) {
+    setMessage("");
+    setError("");
+    try {
+      const response = await apiFetch("/api/ai/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: task.id, status }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.message || payload.error || "No se pudo actualizar la tarea.");
+
+      setMessage(`Tarea ${statusLabel(status)}: ${task.title}`);
+      await loadData();
+    } catch (err: any) {
+      setError(err?.message || "Error actualizando tarea.");
     }
   }
 
@@ -230,10 +309,11 @@ export default function AIDecisionsPage() {
           </div>
         </section>
 
-        <section className="mt-5 grid gap-3 md:grid-cols-4">
+        <section className="mt-5 grid gap-3 md:grid-cols-5">
           <Kpi title="Pendientes" value={stats.pending} icon={<ClipboardCheck size={19} />} tone="cyan" />
           <Kpi title="Eventos criticos" value={stats.criticalEvents} icon={<ShieldAlert size={19} />} tone="red" />
           <Kpi title="Alta prioridad" value={stats.highDecisions} icon={<AlertTriangle size={19} />} tone="amber" />
+          <Kpi title="Tareas IA" value={stats.activeTasks} icon={<ListTodo size={19} />} tone="cyan" />
           <Kpi title="Riesgo promedio" value={`${stats.avgRisk}%`} icon={<Brain size={19} />} tone="purple" />
         </section>
 
@@ -261,6 +341,79 @@ export default function AIDecisionsPage() {
           </div>
         ) : null}
 
+        {setupNotice ? (
+          <div className="mt-5 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm font-bold text-amber-100">
+            {setupNotice}
+          </div>
+        ) : null}
+
+        <section className="mt-6">
+          <SectionTitle icon={<ListTodo size={20} />} title="Tareas IA activas" subtitle="Decisiones ejecutadas convertidas en trabajo operativo." />
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            {loading ? <LoadingBlock /> : null}
+            {!loading && tasks.length === 0 ? <EmptyBlock text="No hay tareas IA activas." /> : null}
+
+            {tasks.map((task) => (
+              <article key={task.id} className="rounded-[22px] border border-white/10 bg-slate-950/80 p-4 shadow-xl shadow-black/20">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={cx("rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em]", priorityTone(task.priority))}>
+                        {task.priority}
+                      </span>
+                      <span className={cx("rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em]", statusTone(task.status))}>
+                        {statusLabel(task.status)}
+                      </span>
+                      <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em] text-slate-300">
+                        {normalizeModule(task.module)}
+                      </span>
+                    </div>
+                    <h2 className="mt-3 text-lg font-black text-white">{task.title}</h2>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">{task.summary}</p>
+                    <p className="mt-3 text-xs font-bold text-slate-500">{formatDate(task.createdAt)}</p>
+                  </div>
+
+                  <div className="grid min-w-max grid-cols-2 gap-2">
+                    {task.status === "open" ? (
+                      <button
+                        type="button"
+                        onClick={() => updateTask(task, "in_progress")}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-xs font-black text-cyan-100 hover:bg-cyan-500/20"
+                      >
+                        <Clock3 size={15} />
+                        Iniciar
+                      </button>
+                    ) : null}
+                    {task.status !== "done" ? (
+                      <button
+                        type="button"
+                        onClick={() => updateTask(task, "done")}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-xs font-black text-emerald-100 hover:bg-emerald-500/20"
+                      >
+                        <CheckSquare size={15} />
+                        Completar
+                      </button>
+                    ) : null}
+                    {task.route ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          window.location.href = task.route || "/";
+                        }}
+                        className="col-span-2 inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-black text-slate-100 hover:bg-white/[0.08]"
+                      >
+                        <ExternalLink size={15} />
+                        Abrir modulo
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
         <section className="mt-6 grid gap-5 xl:grid-cols-[1.08fr_0.92fr]">
           <div>
             <SectionTitle icon={<ClipboardCheck size={20} />} title="Decisiones pendientes" subtitle="Acciones preparadas por la IA esperando criterio humano." />
@@ -283,7 +436,7 @@ export default function AIDecisionsPage() {
                       </div>
                       <h2 className="mt-3 text-lg font-black text-white">{decision.title}</h2>
                       <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">{decision.summary}</p>
-                      <p className="mt-3 text-xs font-bold text-slate-500">{decision.actionType} · {formatDate(decision.createdAt)}</p>
+                      <p className="mt-3 text-xs font-bold text-slate-500">{decision.actionType} - {formatDate(decision.createdAt)}</p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 sm:flex sm:min-w-max sm:flex-wrap sm:justify-end">
@@ -339,7 +492,7 @@ export default function AIDecisionsPage() {
                       </div>
                       <h2 className="mt-3 text-base font-black text-white">{event.title}</h2>
                       <p className="mt-2 text-sm font-semibold leading-6 text-slate-300">{event.summary}</p>
-                      <p className="mt-3 text-xs font-bold text-slate-500">{normalizeModule(event.module)} · {formatDate(event.createdAt)}</p>
+                      <p className="mt-3 text-xs font-bold text-slate-500">{normalizeModule(event.module)} - {formatDate(event.createdAt)}</p>
                     </div>
                     <Eye className="mt-1 shrink-0 text-cyan-300" size={18} />
                   </div>

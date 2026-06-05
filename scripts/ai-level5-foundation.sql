@@ -75,4 +75,31 @@ create table if not exists public.ai_monitor_events (
 create index if not exists idx_ai_monitor_events_status_created
   on public.ai_monitor_events (status, created_at desc);
 
+create table if not exists public.ai_tasks (
+  id text primary key,
+  decision_id text,
+  module text not null default 'global',
+  title text not null,
+  summary text not null default '',
+  status text not null default 'open',
+  priority text not null default 'normal',
+  route text,
+  payload jsonb not null default '{}'::jsonb,
+  created_by text,
+  assigned_to text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  completed_at timestamptz,
+  constraint ai_tasks_status_check
+    check (status in ('open', 'in_progress', 'done', 'cancelled')),
+  constraint ai_tasks_priority_check
+    check (priority in ('low', 'normal', 'high', 'critical'))
+);
+
+create index if not exists idx_ai_tasks_status_created
+  on public.ai_tasks (status, created_at desc);
+
+create index if not exists idx_ai_tasks_decision
+  on public.ai_tasks (decision_id);
+
 select pg_notify('pgrst', 'reload schema');
