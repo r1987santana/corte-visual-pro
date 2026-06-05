@@ -102,9 +102,10 @@ const navGroups: NavGroup[] = [
         href: "/dashboard-ceo",
         permission: "dashboard_ceo",
         icon: <LayoutDashboard size={20} />,
-        match: ["/dashboard-ceo", "/ceo/postventa"],
+        match: ["/dashboard-ceo", "/ceo/postventa", "/ia-decisiones"],
         children: [
           { label: "Dashboard CEO", href: "/dashboard-ceo", permission: "dashboard_ceo" },
+          { label: "Decisiones IA", href: "/ia-decisiones", permission: "dashboard_ceo" },
           { label: "Postventa CEO", href: "/ceo/postventa", permission: "dashboard_ceo" },
         ],
       },
