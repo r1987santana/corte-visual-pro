@@ -14,6 +14,9 @@ import {
   Radar,
   Send,
   Sparkles,
+  StopCircle,
+  Volume2,
+  VolumeX,
   X,
 } from "lucide-react";
 import { getModuleConfig, getModuleKeyFromPath } from "@/lib/ai/assistant-config";
@@ -96,6 +99,27 @@ function miniFormat(content: string) {
     .replace(/^- /gm, "• ");
 }
 
+function speechText(content: string) {
+  return String(content || "")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[•#*_`>\[\]()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 900);
+}
+
+function getSpanishVoice() {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  return (
+    voices.find((voice) => /dominican|caribbean|latino|sabina|microsoft/i.test(voice.name) && voice.lang.toLowerCase().startsWith("es")) ||
+    voices.find((voice) => voice.lang.toLowerCase().startsWith("es-419")) ||
+    voices.find((voice) => voice.lang.toLowerCase().startsWith("es-us")) ||
+    voices.find((voice) => voice.lang.toLowerCase().startsWith("es")) ||
+    null
+  );
+}
+
 export default function ModuleAIAssistant() {
   const pathname = usePathname();
   const router = useRouter();
@@ -107,6 +131,16 @@ export default function ModuleAIAssistant() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
+
+  useEffect(() => {
+    setVoiceSupported(typeof window !== "undefined" && "speechSynthesis" in window);
+    try {
+      setVoiceEnabled(localStorage.getItem("rdwood_ai_voice_enabled") === "true");
+    } catch {}
+  }, []);
 
   useEffect(() => {
     setMessages([
@@ -116,6 +150,55 @@ export default function ModuleAIAssistant() {
       },
     ]);
   }, [config.name]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  function stopVoice() {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    setSpeaking(false);
+  }
+
+  function speak(content: string) {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    const cleanText = speechText(content);
+    if (!cleanText) return;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = "es-DO";
+    utterance.rate = 0.94;
+    utterance.pitch = 0.98;
+    const voice = getSpanishVoice();
+    if (voice) utterance.voice = voice;
+    utterance.onstart = () => setSpeaking(true);
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function toggleVoice() {
+    if (!voiceSupported) return;
+    const next = !voiceEnabled;
+    setVoiceEnabled(next);
+    try {
+      localStorage.setItem("rdwood_ai_voice_enabled", String(next));
+    } catch {}
+
+    if (!next) {
+      stopVoice();
+      return;
+    }
+
+    const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+    if (lastAssistant) speak(lastAssistant.content);
+  }
 
   function executeAction(action?: ChatMessage["action"]) {
     if (!action || !action.route) return;
@@ -165,20 +248,24 @@ export default function ModuleAIAssistant() {
 
       const data = await response.json();
       const action = data?.action?.type && data.action.type !== "none" ? data.action : undefined;
+      const assistantContent = miniFormat(data.answer || data.response || data.message || "No pude responder ahora mismo.");
 
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: miniFormat(data.answer || data.response || data.message || "No pude responder ahora mismo."),
+          content: assistantContent,
           action,
         },
       ]);
+      if (voiceEnabled) speak(assistantContent);
     } catch (error: any) {
+      const assistantContent = `No pude conectar con el asistente: ${error?.message || "error desconocido"}`;
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: `No pude conectar con el asistente: ${error?.message || "error desconocido"}` },
+        { role: "assistant", content: assistantContent },
       ]);
+      if (voiceEnabled) speak(assistantContent);
     } finally {
       setLoading(false);
     }
@@ -222,6 +309,30 @@ export default function ModuleAIAssistant() {
           <div className="flex gap-2">
             <button
               type="button"
+              onClick={toggleVoice}
+              disabled={!voiceSupported}
+              className={cx(
+                "rounded-xl border p-2 disabled:cursor-not-allowed disabled:opacity-40",
+                voiceEnabled
+                  ? "border-emerald-400/35 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/20"
+                  : "border-slate-700 bg-slate-950 text-slate-300 hover:text-cyan-200",
+              )}
+              title={voiceEnabled ? "Apagar voz IA" : voiceSupported ? "Activar voz IA" : "Voz no disponible en este navegador"}
+            >
+              {voiceEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+            </button>
+            {speaking ? (
+              <button
+                type="button"
+                onClick={stopVoice}
+                className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-2 text-amber-100 hover:bg-amber-400/20"
+                title="Detener voz"
+              >
+                <StopCircle size={16} />
+              </button>
+            ) : null}
+            <button
+              type="button"
               onClick={() => askAssistant("Analiza la pantalla actual y dime riesgos, margen y próximo paso")}
               className="rounded-xl border border-cyan-400/30 bg-cyan-400/10 p-2 text-cyan-100 hover:bg-cyan-400/20"
               title="Analizar pantalla"
@@ -238,7 +349,10 @@ export default function ModuleAIAssistant() {
             </button>
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={() => {
+                stopVoice();
+                setOpen(false);
+              }}
               className="rounded-xl border border-slate-700 bg-slate-950 p-2 text-slate-300 hover:text-red-200"
               title="Cerrar"
             >
@@ -295,6 +409,18 @@ export default function ModuleAIAssistant() {
               >
                 <ExternalLink size={14} />
                 {msg.action.label || "Ejecutar acción"}
+              </button>
+            ) : null}
+
+            {msg.role === "assistant" && voiceSupported ? (
+              <button
+                type="button"
+                onClick={() => speak(msg.content)}
+                className="mt-3 inline-flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-black text-slate-300 hover:border-cyan-400/30 hover:text-cyan-100"
+                title="Escuchar respuesta"
+              >
+                <Volume2 size={14} />
+                Escuchar
               </button>
             ) : null}
           </div>
