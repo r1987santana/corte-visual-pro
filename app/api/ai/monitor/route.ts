@@ -259,6 +259,15 @@ function servicePricingHint(row: any, context: { quoteItems?: any[]; saleItems?:
   const internalPrice = median([...quotePrices, ...salePrices]);
   const externalCost = weightedAverage(referenceCosts);
   const externalPrice = weightedAverage(referencePrices);
+  const hasExternalReference = references.some((reference) =>
+    ["internet", "supplier", "manual"].includes(String(reference.source_type || "").toLowerCase())
+  );
+  const referenceSource = hasExternalReference ? "Referencias externas" : "Referencia base del sistema";
+  const referenceSourceType = references.some((reference) => reference.source_type === "internet")
+    ? "internet"
+    : hasExternalReference
+      ? "supplier"
+      : "system";
 
   const suggestedCost = internalCost || externalCost || fallback.suggestedCost;
   const minSuggestedPrice = suggestedCost > 0 ? Math.round(suggestedCost / (1 - minMargin)) : 0;
@@ -277,8 +286,8 @@ function servicePricingHint(row: any, context: { quoteItems?: any[]; saleItems?:
       : null,
     references.length
       ? {
-          source: "Referencias externas",
-          sourceType: references.some((reference) => reference.source_type === "internet") ? "internet" : "supplier",
+          source: referenceSource,
+          sourceType: referenceSourceType,
           observations: references.length,
           cost: externalCost,
           price: externalPrice,
@@ -301,7 +310,9 @@ function servicePricingHint(row: any, context: { quoteItems?: any[]; saleItems?:
   const sourceLabel = internalCost || internalPrice
     ? "historial interno"
     : references.length
-      ? "referencias externas"
+      ? hasExternalReference
+        ? "referencias externas"
+        : "referencia base del sistema"
       : "regla base provisional";
 
   const confidence = Math.max(...evidence.map((item: any) => toNumber(item.confidence || 0.45)), 0.45);
@@ -320,7 +331,9 @@ function servicePricingHint(row: any, context: { quoteItems?: any[]; saleItems?:
         ? "Sugerencia basada en cotizaciones/ventas reales registradas en el sistema."
         : sourceLabel === "referencias externas"
           ? "Sugerencia basada en referencias externas guardadas con fuente y confianza."
-          : fallback.basis,
+          : sourceLabel === "referencia base del sistema"
+            ? "Sugerencia basada en el catalogo base del sistema hasta alimentar datos reales o fuentes externas."
+            : fallback.basis,
     actionSummary,
     evidence,
     calculation: {
