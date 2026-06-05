@@ -82,6 +82,20 @@ export async function POST(request: Request) {
       must_change_pin: userData.must_change_pin || false,
     };
 
+    const loginAt = new Date().toISOString();
+
+    const { error: closeOldSessionsError } = await supabase
+      .from("app_sessions")
+      .update({
+        status: "closed",
+        closed_at: loginAt,
+        closed_reason: "single_session_replaced",
+      })
+      .eq("app_user_id", user.id)
+      .eq("status", "active");
+
+    if (closeOldSessionsError) throw closeOldSessionsError;
+
     await supabase.from("app_sessions").insert({
       app_user_id: user.id,
       email: user.email,
@@ -89,8 +103,8 @@ export async function POST(request: Request) {
       device_info: deviceInfo,
       status: "active",
       expires_at: expiresAt.toISOString(),
-      created_at: new Date().toISOString(),
-      last_seen_at: new Date().toISOString(),
+      created_at: loginAt,
+      last_seen_at: loginAt,
     });
 
     await supabase.rpc("register_login_attempt", {

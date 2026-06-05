@@ -56,6 +56,7 @@ export function apiFetch(input: RequestInfo | URL, init: RequestInit = {}) {
 export function storeAuth(user: AuthUser, token: string) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
   localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem("session_token", token);
   localStorage.setItem("rd_logged_in", "true");
   localStorage.setItem("rd_current_user", JSON.stringify(user));
 }
@@ -63,6 +64,7 @@ export function storeAuth(user: AuthUser, token: string) {
 export function clearAuth() {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem("session_token");
   localStorage.removeItem(SESSION_VALIDATED_AT_KEY);
   localStorage.removeItem(SESSION_LAST_SEEN_AT_KEY);
   localStorage.removeItem("rd_logged_in");
@@ -195,14 +197,21 @@ export async function logout() {
   clearAuth();
 }
 
-export async function validateSession() {
+function writeSessionMessage(message: string) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem("rdwood_lock_message", message);
+  } catch {}
+}
+
+export async function validateSession(options: { force?: boolean } = {}) {
   const token = getStoredToken();
   const user = getStoredUser();
 
   if (!token || !user) return null;
 
   const lastValidatedAt = Number(localStorage.getItem(SESSION_VALIDATED_AT_KEY) || 0);
-  if (lastValidatedAt && Date.now() - lastValidatedAt < SESSION_VALIDATION_CACHE_MS) {
+  if (!options.force && lastValidatedAt && Date.now() - lastValidatedAt < SESSION_VALIDATION_CACHE_MS) {
     return user;
   }
 
@@ -210,10 +219,21 @@ export async function validateSession() {
     .from("app_sessions")
     .select("*")
     .eq("session_token", token)
-    .eq("status", "active")
     .maybeSingle();
 
   if (error || !data) {
+    writeSessionMessage("Sesion invalida. Entra de nuevo.");
+    clearAuth();
+    return null;
+  }
+
+  if (String(data.status || "").toLowerCase() !== "active") {
+    const reason = String(data.closed_reason || "").toLowerCase();
+    writeSessionMessage(
+      reason === "single_session_replaced"
+        ? "Sesion cerrada porque este usuario inicio sesion en otro dispositivo."
+        : "Sesion cerrada. Entra de nuevo."
+    );
     clearAuth();
     return null;
   }

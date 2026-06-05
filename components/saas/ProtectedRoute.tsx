@@ -15,6 +15,7 @@ import {
 import { writeAuditLog } from "@/lib/auditTrail";
 
 const INACTIVITY_LIMIT_MS = 5 * 60 * 1000;
+const SESSION_POLL_MS = 15 * 1000;
 
 function isPublicClientRoute(pathname: string) {
   return (
@@ -100,6 +101,25 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     }
 
     check();
+  }, [pathname, router]);
+
+  useEffect(() => {
+    if (pathname.startsWith("/login") || isPublicClientRoute(pathname) || isKioskRoute(pathname)) return;
+
+    let cancelled = false;
+
+    async function checkActiveSession() {
+      const activeUser = await validateSession({ force: true });
+      if (cancelled || activeUser) return;
+      router.push("/login");
+      router.refresh();
+    }
+
+    const interval = setInterval(checkActiveSession, SESSION_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [pathname, router]);
 
   useEffect(() => {
