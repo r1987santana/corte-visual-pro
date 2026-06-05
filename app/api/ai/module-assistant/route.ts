@@ -6,6 +6,8 @@ import { resolveAIAction, actionInstructionText } from "@/lib/ai/action-router";
 import { orchestrateIndustrialAI } from "@/lib/ai/orchestrator";
 import { requireApiSession } from "@/lib/security/api-guard";
 
+const MEMORY_TABLE = "ai_operational_memory";
+
 async function safeSelect(table: string, query = "*", limit = 100) {
   try {
     const { data, error } = await supabase.from(table).select(query).limit(limit);
@@ -72,6 +74,143 @@ function isCutModule(moduleName: string, pathname: string) {
 
 function normalizeText(value: any) {
   return String(value || "").trim();
+}
+
+function normalizeIntentText(value: string) {
+  return normalizeText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function safeId(prefix: string) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function detectMemoryIntent(message: string) {
+  const text = normalizeIntentText(message);
+  return {
+    wantsRemember:
+      text.includes("recuerda") ||
+      text.includes("memoriza") ||
+      text.includes("guarda esto") ||
+      text.includes("ten pendiente") ||
+      text.includes("no olvides"),
+    wantsRecall:
+      text.includes("que recuerdas") ||
+      text.includes("memoria") ||
+      text.includes("recuerdas de") ||
+      text.includes("que tienes guardado") ||
+      text.includes("que sabes de"),
+  };
+}
+
+function extractMemorySummary(message: string) {
+  const cleaned = normalizeText(message).replace(/^recuerda\s*(que)?\s*/i, "").trim();
+  return cleaned || normalizeText(message);
+}
+
+async function saveAssistantMemory({
+  supabaseClient,
+  moduleName,
+  message,
+  userEmail,
+}: {
+  supabaseClient: any;
+  moduleName: string;
+  message: string;
+  userEmail: string;
+}) {
+  const summary = extractMemorySummary(message);
+  const now = new Date().toISOString();
+  const record = {
+    id: safeId("ai_mem"),
+    scope: moduleName || "global",
+    title: summary.length > 80 ? `${summary.slice(0, 77)}...` : summary,
+    summary,
+    entity_type: "accion",
+    entity_id: null,
+    priority: "normal",
+    metadata: {
+      source: "module-assistant",
+      saved_from: moduleName || "global",
+    },
+    user_email: userEmail,
+    created_at: now,
+    updated_at: now,
+  };
+
+  const { error } = await supabaseClient.from(MEMORY_TABLE).insert(record);
+  if (error) throw error;
+
+  return {
+    id: record.id,
+    scope: record.scope,
+    title: record.title,
+    summary: record.summary,
+    createdAt: record.created_at,
+  };
+}
+
+async function loadAssistantMemory({
+  supabaseClient,
+  moduleName,
+  query,
+}: {
+  supabaseClient: any;
+  moduleName: string;
+  query?: string;
+}) {
+  const scopes = Array.from(new Set(["global", moduleName || "global"]));
+  const { data, error } = await supabaseClient
+    .from(MEMORY_TABLE)
+    .select("id,scope,title,summary,priority,created_at,updated_at")
+    .in("scope", scopes)
+    .order("updated_at", { ascending: false })
+    .limit(12);
+
+  if (error) throw error;
+
+  const needle = normalizeIntentText(query || "")
+    .replace(/\b(que|recuerdas|memoria|de|la|el|fase|prueba|actual)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const rows = Array.isArray(data) ? data : [];
+  if (!needle) return rows;
+
+  const filtered = rows.filter((row) => {
+    const haystack = normalizeIntentText(`${row.title || ""} ${row.summary || ""} ${row.scope || ""}`);
+    return needle
+      .split(" ")
+      .filter((part) => part.length >= 4)
+      .some((part) => haystack.includes(part));
+  });
+
+  return filtered.length ? filtered : rows;
+}
+
+function formatMemoryAnswer(rows: any[]) {
+  if (!rows.length) {
+    return [
+      "Todavia no tengo memoria persistente guardada para esta fase.",
+      "",
+      "Dime algo empezando con:",
+      "recuerda que ...",
+      "",
+      "y lo guardo en Supabase para recuperarlo despues.",
+    ].join("\n");
+  }
+
+  return [
+    "Esto es lo que tengo guardado en memoria persistente:",
+    "",
+    ...rows.slice(0, 8).map((row: any, index: number) => {
+      const date = row.updated_at || row.created_at || "";
+      const suffix = date ? ` (${new Date(date).toLocaleString("es-DO")})` : "";
+      return `${index + 1}. [${row.scope || "global"}] ${row.summary || row.title}${suffix}`;
+    }),
+  ].join("\n");
 }
 
 function buildDefaultResponse({
@@ -145,6 +284,7 @@ export async function POST(req: Request) {
 
     const pathname = normalizeText(body?.pathname || body?.screenContext?.path || "").toLowerCase();
     const message = normalizeText(body?.message || body?.prompt || "");
+    const memoryIntent = detectMemoryIntent(message);
 
     const screenContext = body?.screenContext || body?.context?.screenContext || null;
     const pageData = body?.pageData || body?.context || screenContext || {};
@@ -160,6 +300,57 @@ export async function POST(req: Request) {
     const isProduction = isProductionModule(moduleName, pathname);
     const isCEO = isCEOModule(moduleName, pathname);
     const isCut = isCutModule(moduleName, pathname);
+
+    if (memoryIntent.wantsRemember) {
+      const memory = await saveAssistantMemory({
+        supabaseClient: session.supabase,
+        moduleName: moduleName || "global",
+        message,
+        userEmail: session.user.email,
+      });
+
+      const answer = [
+        "Memoria guardada en Supabase.",
+        "",
+        `Alcance: ${memory.scope}`,
+        `Recuerdo: ${memory.summary}`,
+        "",
+        "Cuando me preguntes que recuerdo, debo traer esto antes del diagnostico operativo.",
+      ].join("\n");
+
+      return NextResponse.json({
+        ok: true,
+        answer,
+        response: answer,
+        message: answer,
+        memory,
+        meta: {
+          module: moduleName || "global",
+          memoryAction: "saved",
+        },
+      });
+    }
+
+    if (memoryIntent.wantsRecall) {
+      const rows = await loadAssistantMemory({
+        supabaseClient: session.supabase,
+        moduleName: moduleName || "global",
+        query: message,
+      });
+      const answer = formatMemoryAnswer(rows);
+
+      return NextResponse.json({
+        ok: true,
+        answer,
+        response: answer,
+        message: answer,
+        memories: rows,
+        meta: {
+          module: moduleName || "global",
+          memoryAction: "recalled",
+        },
+      });
+    }
 
     let orders: any[] = [];
     let productionItems: any[] = [];
