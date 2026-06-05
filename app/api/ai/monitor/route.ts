@@ -97,7 +97,64 @@ function money(value: number) {
   return `RD$${Math.round(value).toLocaleString("en-US")}`;
 }
 
-function servicePricingHint(row: any) {
+function normalizeKey(value: any) {
+  return text(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function median(values: number[]) {
+  const clean = values.filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
+  if (!clean.length) return 0;
+  const middle = Math.floor(clean.length / 2);
+  return clean.length % 2 ? clean[middle] : Math.round((clean[middle - 1] + clean[middle]) / 2);
+}
+
+function weightedAverage(items: Array<{ value: number; weight: number }>) {
+  const clean = items.filter((item) => item.value > 0 && item.weight > 0);
+  const weight = clean.reduce((sum, item) => sum + item.weight, 0);
+  if (!weight) return 0;
+  return Math.round(clean.reduce((sum, item) => sum + item.value * item.weight, 0) / weight);
+}
+
+function itemProductId(row: any) {
+  return text(row.product_id || row.inventory_id || row.item_id);
+}
+
+function itemProductName(row: any) {
+  return text(row.product_name || row.name || row.description || row.item_name);
+}
+
+function itemPrice(row: any) {
+  return toNumber(row.price ?? row.unit_price ?? row.sale_price ?? row.total_price);
+}
+
+function itemCost(row: any) {
+  return toNumber(row.cost_price ?? row.unit_cost ?? row.cost ?? row.total_cost);
+}
+
+function matchesProduct(source: any, product: any) {
+  const productId = text(product.id);
+  const sourceId = itemProductId(source);
+  if (productId && sourceId && productId === sourceId) return true;
+
+  const productKey = normalizeKey(`${rowName(product)} ${product.code || product.sku || ""}`);
+  const sourceKey = normalizeKey(`${itemProductName(source)} ${source.product_key || source.code || source.sku || ""}`);
+  if (!productKey || !sourceKey) return false;
+  return productKey.includes(sourceKey) || sourceKey.includes(productKey);
+}
+
+function referenceMatches(reference: any, product: any) {
+  const productKey = normalizeKey(`${rowName(product)} ${product.code || product.sku || ""}`);
+  const referenceKey = normalizeKey(`${reference.product_key || ""} ${reference.product_name || ""}`);
+  if (!productKey || !referenceKey) return false;
+  return productKey.includes(referenceKey) || referenceKey.includes(productKey);
+}
+
+function fallbackServicePricing(row: any) {
   const name = rowName(row);
   const normalized = name.toLowerCase();
   const unit = text(row.unit || row.unidad || "unidad");
@@ -161,6 +218,125 @@ function servicePricingHint(row: any) {
       `Actualizar costo a ${money(suggestedCost)}.`,
       `Actualizar precio venta a ${money(suggestedPrice)} si esta en cero o por debajo del minimo.`,
       "Validar margen antes de cotizar o producir.",
+    ],
+  };
+}
+
+function servicePricingHint(row: any, context: { quoteItems?: any[]; saleItems?: any[]; pricingReferences?: any[] } = {}) {
+  const name = rowName(row);
+  const unit = text(row.unit || row.unidad || "unidad");
+  const currentCost = costOf(row);
+  const currentPrice = priceOf(row);
+  const fallback = fallbackServicePricing(row);
+  const minMargin = 0.5;
+
+  const quoteItems = (context.quoteItems || []).filter((item) => matchesProduct(item, row));
+  const saleItems = (context.saleItems || []).filter((item) => matchesProduct(item, row));
+  const references = (context.pricingReferences || [])
+    .filter((reference) => String(reference.currency || "DOP").toUpperCase() === "DOP")
+    .filter((reference) => referenceMatches(reference, row));
+
+  const quoteCosts = quoteItems.map(itemCost).filter((value) => value > 0);
+  const quotePrices = quoteItems.map(itemPrice).filter((value) => value > 0);
+  const saleCosts = saleItems.map(itemCost).filter((value) => value > 0);
+  const salePrices = saleItems.map(itemPrice).filter((value) => value > 0);
+
+  const referenceCosts = references
+    .map((reference) => ({
+      value: toNumber(reference.observed_cost),
+      weight: Math.max(0.1, toNumber(reference.confidence || 0.7)),
+    }))
+    .filter((item) => item.value > 0);
+
+  const referencePrices = references
+    .map((reference) => ({
+      value: toNumber(reference.observed_price),
+      weight: Math.max(0.1, toNumber(reference.confidence || 0.7)),
+    }))
+    .filter((item) => item.value > 0);
+
+  const internalCost = median([...quoteCosts, ...saleCosts]);
+  const internalPrice = median([...quotePrices, ...salePrices]);
+  const externalCost = weightedAverage(referenceCosts);
+  const externalPrice = weightedAverage(referencePrices);
+
+  const suggestedCost = internalCost || externalCost || fallback.suggestedCost;
+  const minSuggestedPrice = suggestedCost > 0 ? Math.round(suggestedCost / (1 - minMargin)) : 0;
+  const suggestedPrice = Math.max(currentPrice, internalPrice, externalPrice, minSuggestedPrice, fallback.suggestedPrice);
+
+  const evidence = [
+    internalCost || internalPrice
+      ? {
+          source: "Historial interno",
+          sourceType: "internal",
+          observations: quoteItems.length + saleItems.length,
+          cost: internalCost,
+          price: internalPrice,
+          confidence: 0.9,
+        }
+      : null,
+    references.length
+      ? {
+          source: "Referencias externas",
+          sourceType: references.some((reference) => reference.source_type === "internet") ? "internet" : "supplier",
+          observations: references.length,
+          cost: externalCost,
+          price: externalPrice,
+          confidence: Math.max(...references.map((reference) => toNumber(reference.confidence || 0.7))),
+          urls: references.map((reference) => reference.source_url).filter(Boolean).slice(0, 3),
+        }
+      : null,
+    !internalCost && !internalPrice && !references.length
+      ? {
+          source: "Regla base provisional",
+          sourceType: "system",
+          observations: 1,
+          cost: fallback.suggestedCost,
+          price: fallback.suggestedPrice,
+          confidence: 0.45,
+        }
+      : null,
+  ].filter(Boolean);
+
+  const sourceLabel = internalCost || internalPrice
+    ? "historial interno"
+    : references.length
+      ? "referencias externas"
+      : "regla base provisional";
+
+  const confidence = Math.max(...evidence.map((item: any) => toNumber(item.confidence || 0.45)), 0.45);
+  const actionSummary = `Actualizar ${name}: costo sugerido ${money(suggestedCost)} y precio venta sugerido ${money(suggestedPrice)} por ${unit}. Fuente: ${sourceLabel}.`;
+
+  return {
+    ...fallback,
+    unit,
+    currentCost,
+    currentPrice,
+    suggestedCost,
+    suggestedPrice,
+    confidence,
+    basis:
+      sourceLabel === "historial interno"
+        ? "Sugerencia basada en cotizaciones/ventas reales registradas en el sistema."
+        : sourceLabel === "referencias externas"
+          ? "Sugerencia basada en referencias externas guardadas con fuente y confianza."
+          : fallback.basis,
+    actionSummary,
+    evidence,
+    calculation: {
+      minMargin,
+      internalCost,
+      internalPrice,
+      externalCost,
+      externalPrice,
+      fallbackCost: fallback.suggestedCost,
+      fallbackPrice: fallback.suggestedPrice,
+    },
+    nextSteps: [
+      `Abrir inventario y buscar ${name}.`,
+      `Actualizar costo a ${money(suggestedCost)}.`,
+      `Actualizar precio venta a ${money(suggestedPrice)} si esta en cero o por debajo del minimo.`,
+      `Fuente usada: ${sourceLabel}. Validar margen antes de cotizar o producir.`,
     ],
   };
 }
@@ -259,11 +435,14 @@ async function upsertDecision(supabase: any, input: MonitorEventInput, userEmail
 function buildMonitorEvents(data: {
   inventory: any[];
   quotes: any[];
+  quoteItems?: any[];
   orders: any[];
   payments: any[];
   purchaseOrders: any[];
   requisitions: any[];
   sales: any[];
+  saleItems?: any[];
+  pricingReferences?: any[];
 }) {
   const events: MonitorEventInput[] = [];
   const inventory = data.inventory || [];
@@ -320,7 +499,11 @@ function buildMonitorEvents(data: {
 
   missingCost.forEach((row) => {
     const name = rowName(row);
-    const pricing = servicePricingHint(row);
+    const pricing = servicePricingHint(row, {
+      quoteItems: data.quoteItems || [],
+      saleItems: data.saleItems || [],
+      pricingReferences: data.pricingReferences || [],
+    });
     events.push({
       module: "inventario",
       eventType: "missing_inventory_cost",
@@ -519,24 +702,30 @@ export async function POST(req: Request) {
   const session = await requireApiSession(req, "dashboard_ceo");
   if (!session.ok) return session.response;
 
-  const [inventory, quotes, orders, payments, purchaseOrders, requisitions, sales] = await Promise.all([
+  const [inventory, quotes, quoteItems, orders, payments, purchaseOrders, requisitions, sales, saleItems, pricingReferences] = await Promise.all([
     safeSelect(session.supabase, "inventory", "*", 600),
     safeSelect(session.supabase, "quotes", "*", 300),
+    safeSelect(session.supabase, "quote_items", "*", 600),
     safeSelect(session.supabase, "production_orders", "*", 300),
     safeSelect(session.supabase, "client_payments", "*", 300),
     safeSelect(session.supabase, "purchase_orders", "*", 300),
     safeSelect(session.supabase, "warehouse_requisitions", "*", 300),
     safeSelect(session.supabase, "sales", "*", 300),
+    safeSelect(session.supabase, "sale_items", "*", 600),
+    safeSelect(session.supabase, "ai_pricing_references", "*", 600),
   ]);
 
   const detected = buildMonitorEvents({
     inventory,
     quotes,
+    quoteItems,
     orders,
     payments,
     purchaseOrders,
     requisitions,
     sales,
+    saleItems,
+    pricingReferences,
   });
 
   const eventIds: Array<string | null> = [];
@@ -562,11 +751,14 @@ export async function POST(req: Request) {
     summary: {
       inventory: inventory.length,
       quotes: quotes.length,
+      quoteItems: quoteItems.length,
       orders: orders.length,
       payments: payments.length,
       purchaseOrders: purchaseOrders.length,
       requisitions: requisitions.length,
       sales: sales.length,
+      saleItems: saleItems.length,
+      pricingReferences: pricingReferences.length,
     },
   });
 }

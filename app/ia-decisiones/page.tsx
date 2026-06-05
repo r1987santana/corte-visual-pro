@@ -539,6 +539,7 @@ function ActionPlan({ payload, compact = false }: { payload?: Record<string, any
   if (!pricing) return null;
 
   const steps = Array.isArray(pricing.nextSteps) ? pricing.nextSteps.slice(0, compact ? 2 : 4) : [];
+  const evidence = Array.isArray(pricing.evidence) ? pricing.evidence.slice(0, compact ? 1 : 3) : [];
 
   return (
     <div className="mt-4 rounded-2xl border border-cyan-400/20 bg-cyan-500/[0.07] p-3">
@@ -553,6 +554,20 @@ function ActionPlan({ payload, compact = false }: { payload?: Record<string, any
 
       {!compact && pricing.basis ? (
         <p className="mt-3 text-xs font-semibold leading-5 text-slate-300">{pricing.basis}</p>
+      ) : null}
+
+      {evidence.length ? (
+        <div className="mt-3 grid gap-2">
+          {evidence.map((item: any, index: number) => (
+            <div key={`${item.source}-${index}`} className="rounded-xl border border-white/10 bg-slate-950/55 px-3 py-2 text-xs font-bold leading-5 text-slate-200">
+              <span className="text-cyan-200">{item.source}</span>
+              <span className="text-slate-500"> - </span>
+              <span>{item.observations || 1} dato(s)</span>
+              <span className="text-slate-500"> - </span>
+              <span>confianza {Math.round(Number(item.confidence || 0) * 100)}%</span>
+            </div>
+          ))}
+        </div>
       ) : null}
 
       {steps.length ? (
