@@ -1,0 +1,1143 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "@/lib/supabase";
+
+type AnyRow = Record<string, any>;
+
+type QuoteRow = {
+  id: string;
+  code?: string | null;
+  quote_number?: string | null;
+  client_name?: string | null;
+  client_phone?: string | null;
+  client_email?: string | null;
+  project_name?: string | null;
+  project_type?: string | null;
+  width_mm?: number | null;
+  depth_mm?: number | null;
+  height_mm?: number | null;
+  style?: string | null;
+  color_palette?: string | null;
+  notes?: string | null;
+  presupuesto?: number | null;
+  status?: string | null;
+  created_at?: string | null;
+  render_image_url?: string | null;
+};
+
+type DesignModule = {
+  id: string;
+  name: string;
+  type: string;
+  quantity: number;
+  width_mm: number;
+  depth_mm: number;
+  height_mm: number;
+  material: string;
+  color: string;
+  edge: string;
+  notes: string;
+};
+
+type RenderVariant = {
+  id: "A" | "B" | "C" | "D" | "E";
+  name: string;
+  concept: string;
+  mood: string;
+};
+
+type VariantRenderState = Record<
+  string,
+  {
+    status: "pendiente" | "generando" | "generado" | "aprobado" | "error";
+    imageUrl: string;
+    error?: string;
+  }
+>;
+
+const VARIANTS: RenderVariant[] = [
+  {
+    id: "A",
+    name: "Comercial premium",
+    concept: "Diseño limpio, elegante y fácil de fabricar.",
+    mood: "Moderno, balanceado, apto para aprobación rápida.",
+  },
+  {
+    id: "B",
+    name: "Luxury cálida",
+    concept: "Madera, iluminación cálida y detalles premium.",
+    mood: "Lujo residencial, acogedor y comercial.",
+  },
+  {
+    id: "C",
+    name: "Industrial moderna",
+    concept: "Negro, madera y líneas rectas con carácter fuerte.",
+    mood: "Moderno masculino, alto impacto visual.",
+  },
+  {
+    id: "D",
+    name: "Orgánica europea",
+    concept: "Volúmenes suaves, colores balanceados y estética europea.",
+    mood: "Minimalista, natural y sofisticado.",
+  },
+  {
+    id: "E",
+    name: "Italiana high-end",
+    concept: "Diseño tipo showroom, proporciones premium y luces LED.",
+    mood: "Alta gama, lujo moderno y presentación de venta.",
+  },
+];
+
+const DEFAULT_RENDER_STATE: VariantRenderState = {
+  A: { status: "pendiente", imageUrl: "" },
+  B: { status: "pendiente", imageUrl: "" },
+  C: { status: "pendiente", imageUrl: "" },
+  D: { status: "pendiente", imageUrl: "" },
+  E: { status: "pendiente", imageUrl: "" },
+};
+
+function money(value: number) {
+  return new Intl.NumberFormat("es-DO", {
+    style: "currency",
+    currency: "DOP",
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0));
+}
+
+function n(value: any, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function uid(prefix = "mod") {
+  return `${prefix}-${Math.random().toString(36).slice(2, 10)}-${Date.now()}`;
+}
+
+function normalizeQuote(row: AnyRow): QuoteRow {
+  return {
+    ...row,
+    id: String(row.id),
+    code: row.code ?? row.quote_number ?? row.numero ?? row.id,
+    quote_number: row.quote_number ?? row.code ?? row.numero ?? row.id,
+    client_name: row.client_name ?? row.cliente ?? row.customer_name ?? "Cliente general",
+    client_phone: row.client_phone ?? row.telefono ?? row.phone ?? "",
+    client_email: row.client_email ?? row.email ?? "",
+    project_name: row.project_name ?? row.proyecto ?? row.project ?? "Proyecto IA",
+    project_type: row.project_type ?? row.tipo_proyecto ?? row.tipo ?? "centro_tv",
+    width_mm: n(row.width_mm ?? row.ancho_mm ?? row.room_width ?? row.ancho, 2000),
+    depth_mm: n(row.depth_mm ?? row.profundidad_mm ?? row.room_depth ?? row.profundidad, 450),
+    height_mm: n(row.height_mm ?? row.alto_mm ?? row.room_height ?? row.alto, 2200),
+    style: row.style ?? row.estilo ?? "moderno",
+    color_palette: row.color_palette ?? row.colores ?? "blanco / madera / negro",
+    notes: row.notes ?? row.notas ?? "",
+    presupuesto: Number(row.presupuesto ?? row.total ?? row.grand_total ?? 0),
+    status: row.status ?? row.estado ?? "en_diseno_ia",
+    created_at: row.created_at ?? null,
+    render_image_url: row.render_image_url ?? null,
+  };
+}
+
+function emptyModule(q?: QuoteRow | null): DesignModule {
+  return {
+    id: uid("modulo"),
+    name: "Nuevo módulo",
+    type: "Personalizado",
+    quantity: 1,
+    width_mm: n(q?.width_mm, 1200),
+    depth_mm: n(q?.depth_mm, 450),
+    height_mm: 720,
+    material: "Melamina 18mm",
+    color: q?.color_palette || "blanco / madera / negro",
+    edge: "PVC 1mm visible",
+    notes: "Definir puertas, gavetas, repisas o función del módulo.",
+  };
+}
+
+function buildModules(q: QuoteRow): DesignModule[] {
+  const width = n(q.width_mm, 2400);
+  const depth = n(q.depth_mm, 450);
+  const height = n(q.height_mm, 2200);
+  const projectType = String(q.project_type || "").toLowerCase();
+
+  if (projectType.includes("centro") || projectType.includes("tv")) {
+    return [
+      {
+        id: "modulo-bajo",
+        name: "Módulo bajo TV",
+        type: "Base inferior",
+        quantity: 1,
+        width_mm: width,
+        depth_mm: depth,
+        height_mm: Math.min(650, Math.round(height * 0.3)),
+        material: "Melamina 18mm",
+        color: "madera",
+        edge: "PVC 1mm visible",
+        notes: "Gavetas o puertas inferiores según render aprobado.",
+      },
+      {
+        id: "panel-tv",
+        name: "Panel decorativo TV",
+        type: "Panel pared",
+        quantity: 1,
+        width_mm: width,
+        depth_mm: 80,
+        height_mm: height,
+        material: "Melamina 18mm",
+        color: "blanco / negro",
+        edge: "PVC 1mm visible",
+        notes: "Panel principal para TV con opción LED.",
+      },
+      {
+        id: "repisas-tv",
+        name: "Repisas flotantes",
+        type: "Repisas",
+        quantity: 3,
+        width_mm: Math.round(width * 0.35),
+        depth_mm: Math.min(depth, 320),
+        height_mm: 40,
+        material: "Melamina 18mm",
+        color: "blanco",
+        edge: "PVC 1mm visible",
+        notes: "Repisas decorativas laterales o superiores.",
+      },
+    ];
+  }
+
+  if (projectType.includes("closet")) {
+    return [
+      {
+        id: "torre-colgar",
+        name: "Torre de colgar",
+        type: "Closet colgar",
+        quantity: 1,
+        width_mm: Math.round(width * 0.45),
+        depth_mm: depth,
+        height_mm: height,
+        material: "Melamina 18mm",
+        color: q.color_palette || "blanco",
+        edge: "PVC 1mm visible",
+        notes: "Área para ropa larga/corta.",
+      },
+      {
+        id: "torre-gavetas",
+        name: "Torre de gavetas",
+        type: "Closet gavetas",
+        quantity: 1,
+        width_mm: Math.round(width * 0.3),
+        depth_mm: depth,
+        height_mm: height,
+        material: "Melamina 18mm",
+        color: q.color_palette || "blanco",
+        edge: "PVC 1mm visible",
+        notes: "Gavetas y divisiones.",
+      },
+      {
+        id: "repisas-closet",
+        name: "Repisas / zapatero",
+        type: "Closet repisas",
+        quantity: 1,
+        width_mm: Math.round(width * 0.25),
+        depth_mm: depth,
+        height_mm: height,
+        material: "Melamina 18mm",
+        color: q.color_palette || "blanco",
+        edge: "PVC 1mm visible",
+        notes: "Repisas abiertas o zapatero.",
+      },
+    ];
+  }
+
+  if (projectType.includes("cocina")) {
+    return [
+      {
+        id: "modulos-base",
+        name: "Módulos base",
+        type: "Cocina base",
+        quantity: 3,
+        width_mm: 600,
+        depth_mm: 560,
+        height_mm: 720,
+        material: "Melamina 18mm",
+        color: q.color_palette || "blanco",
+        edge: "PVC 1mm visible",
+        notes: "Bases inferiores: fregadero, gavetero o puertas.",
+      },
+      {
+        id: "aereos",
+        name: "Gabinetes aéreos",
+        type: "Cocina aéreo",
+        quantity: 3,
+        width_mm: 600,
+        depth_mm: 330,
+        height_mm: 700,
+        material: "Melamina 18mm",
+        color: q.color_palette || "blanco",
+        edge: "PVC 1mm visible",
+        notes: "Módulos superiores.",
+      },
+      {
+        id: "torre",
+        name: "Torre / despensa",
+        type: "Cocina torre",
+        quantity: 1,
+        width_mm: 700,
+        depth_mm: 600,
+        height_mm: height,
+        material: "Melamina 18mm",
+        color: q.color_palette || "blanco",
+        edge: "PVC 1mm visible",
+        notes: "Torre nevera, horno o despensa.",
+      },
+    ];
+  }
+
+  return [
+    {
+      id: "modulo-principal",
+      name: "Módulo principal",
+      type: "Personalizado",
+      quantity: 1,
+      width_mm: width,
+      depth_mm: depth,
+      height_mm: height,
+      material: "Melamina 18mm",
+      color: q.color_palette || "blanco / madera / negro",
+      edge: "PVC 1mm visible",
+      notes: "Módulo principal del proyecto.",
+    },
+  ];
+}
+
+function buildPrompt(q: QuoteRow, modules: DesignModule[], variant: RenderVariant) {
+  const moduleLines = modules
+    .map(
+      (m, i) =>
+        `${i + 1}. ${m.name}: quantity ${m.quantity}. Each unit: ${m.width_mm}mm width x ${m.depth_mm}mm depth x ${m.height_mm}mm height. Type: ${m.type}. Material: ${m.material}. Color/finish: ${m.color}. Edge banding: ${m.edge}. Notes: ${m.notes}.`
+    )
+    .join("\n");
+
+  return [
+    "Create a professional realistic interior render for RD WOOD SYSTEM.",
+    `Variant: ${variant.id} - ${variant.name}.`,
+    `Concept: ${variant.concept}.`,
+    `Mood: ${variant.mood}.`,
+    `Project type: ${q.project_type}.`,
+    `Project name: ${q.project_name}.`,
+    `Client: ${q.client_name}.`,
+    `Real space dimensions: ${q.width_mm}mm width x ${q.depth_mm}mm depth x ${q.height_mm}mm height.`,
+    `Style: ${q.style}.`,
+    `Mandatory color palette: ${q.color_palette}. Use all listed colors, not only wood.`,
+    `Budget reference: ${money(Number(q.presupuesto || 0))}.`,
+    `Client notes: ${q.notes || "No additional notes."}`,
+    "",
+    "Manufacturable modules required in the design:",
+    moduleLines,
+    "",
+    "Rules:",
+    "- Represent every module and every quantity listed above.",
+    "- Use real 18mm melamine panels.",
+    "- Respect real proportions and keep the design manufacturable.",
+    "- Show doors, drawers, shelves, wall panels and LED lighting if suitable.",
+    "- Realistic showroom quality, premium commercial render.",
+    "- No watermark, no text overlay, no distorted furniture.",
+    "- Do not generate BOM, CNC, cutlist or QR in this stage.",
+    "- This stage is only for client visual approval.",
+  ].join("\n");
+}
+
+async function base64ToBlob(base64: string, mimeType = "image/png") {
+  const cleanBase64 = base64.includes(",") ? base64.split(",").pop() || "" : base64;
+  const byteCharacters = atob(cleanBase64);
+  const byteArrays: Uint8Array[] = [];
+
+  for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+    const slice = byteCharacters.slice(offset, offset + 512);
+    const byteNumbers = new Array(slice.length);
+
+    for (let i = 0; i < slice.length; i++) {
+      byteNumbers[i] = slice.charCodeAt(i);
+    }
+
+    byteArrays.push(new Uint8Array(byteNumbers));
+  }
+
+  return new Blob(byteArrays, { type: mimeType });
+}
+
+async function uploadGeneratedRenderFromBase64(base64: string, mimeType = "image/png") {
+  const blob = await base64ToBlob(base64, mimeType);
+  const path = `ai-render/render-${Date.now()}-${uid("render")}.png`;
+
+  const { error } = await supabase.storage.from("ai-design-images").upload(path, blob, {
+    upsert: true,
+    contentType: mimeType,
+  });
+
+  if (error) {
+    throw new Error("Error subiendo render a Storage: " + error.message);
+  }
+
+  const { data } = supabase.storage.from("ai-design-images").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+export default function IADisenoPage() {
+  const [mounted, setMounted] = useState(false);
+  const [quotes, setQuotes] = useState<QuoteRow[]>([]);
+  const [selectedQuote, setSelectedQuote] = useState<QuoteRow | null>(null);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [modules, setModules] = useState<DesignModule[]>([]);
+  const [selectedVariant, setSelectedVariant] = useState<RenderVariant>(VARIANTS[0]);
+  const [renders, setRenders] = useState<VariantRenderState>(DEFAULT_RENDER_STATE);
+  const [generatingVariant, setGeneratingVariant] = useState("");
+
+  useEffect(() => {
+    setMounted(true);
+    void loadQuotes();
+  }, []);
+
+  useEffect(() => {
+    if (selectedQuote) {
+      setModules(buildModules(selectedQuote));
+      setRenders(DEFAULT_RENDER_STATE);
+      setSelectedVariant(VARIANTS[0]);
+    }
+  }, [selectedQuote?.id]);
+
+  async function loadQuotes() {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const { data, error } = await supabase
+        .from("quotes")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (error) throw error;
+
+      const rows = (data || []).map(normalizeQuote);
+      setQuotes(rows);
+      setSelectedQuote((current) => current || rows[0] || null);
+      setMessage("✅ Cotizaciones cargadas correctamente.");
+    } catch (err: any) {
+      setMessage(`❌ ${err?.message || "No se pudieron cargar las cotizaciones."}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function updateModule(id: string, key: keyof DesignModule, value: string) {
+    setModules((current) =>
+      current.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              [key]:
+                key === "width_mm" ||
+                key === "depth_mm" ||
+                key === "height_mm" ||
+                key === "quantity"
+                  ? n(value, Number(item[key]) || 1)
+                  : value,
+            }
+          : item
+      )
+    );
+  }
+
+  function addModule() {
+    setModules((current) => [...current, emptyModule(selectedQuote)]);
+    setMessage("✅ Módulo agregado. Ajusta medidas, cantidad, color y notas.");
+  }
+
+  function duplicateModule(module: DesignModule) {
+    setModules((current) => [
+      ...current,
+      {
+        ...module,
+        id: uid("modulo-copia"),
+        name: `${module.name} copia`,
+      },
+    ]);
+    setMessage(`✅ Módulo duplicado: ${module.name}.`);
+  }
+
+  function deleteModule(id: string) {
+    setModules((current) => {
+      if (current.length <= 1) {
+        setMessage("⚠️ Debe quedar al menos un módulo.");
+        return current;
+      }
+      return current.filter((m) => m.id !== id);
+    });
+  }
+
+  function resetModules() {
+    if (!selectedQuote) return;
+    setModules(buildModules(selectedQuote));
+    setRenders(DEFAULT_RENDER_STATE);
+    setMessage("✅ Módulos restaurados según el tipo de proyecto.");
+  }
+
+  function prepareIA() {
+    setMessage("✅ IA preparada con módulos dinámicos, cantidades, colores y medidas. Lista para generar render OpenAI.");
+  }
+
+  async function copyPrompt() {
+    if (!prompt) {
+      setMessage("⚠️ No hay prompt para copiar.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setMessage("✅ Prompt IA copiado al portapapeles.");
+    } catch {
+      setMessage("⚠️ No se pudo copiar automáticamente. Selecciona el texto manualmente.");
+    }
+  }
+
+  async function saveRenderUrlToDatabase(variant: RenderVariant, imageUrl: string, promptText: string) {
+    if (!selectedQuote?.id) return;
+
+    const payload = {
+      quote_id: selectedQuote.id,
+      ai_design_request_id: selectedQuote.id,
+      variant: variant.id,
+      title: `Propuesta ${variant.id} · ${variant.name}`,
+      render_prompt: promptText,
+      render_image_url: imageUrl,
+      status: "render_generado",
+    };
+
+    const { error } = await supabase.from("ai_design_renders").insert(payload as any);
+
+    if (error) {
+      console.warn("No se pudo guardar en ai_design_renders:", error.message);
+    }
+
+    const { error: quoteError } = await supabase
+      .from("quotes")
+      .update({
+        status: "render_generado",
+        render_image_url: imageUrl,
+      } as any)
+      .eq("id", selectedQuote.id);
+
+    if (quoteError) {
+      console.warn("No se pudo actualizar quotes:", quoteError.message);
+    }
+  }
+
+  async function generateVariant(variant: RenderVariant) {
+    if (!selectedQuote) {
+      setMessage("⚠️ Selecciona una cotización primero.");
+      return;
+    }
+
+    const renderPrompt = buildPrompt(selectedQuote, modules, variant);
+
+    try {
+      setSelectedVariant(variant);
+      setGeneratingVariant(variant.id);
+      setMessage(`⏳ Generando render real OpenAI para variante ${variant.id}...`);
+
+      setRenders((current) => ({
+        ...current,
+        [variant.id]: { status: "generando", imageUrl: current[variant.id]?.imageUrl || "" },
+      }));
+
+      const response = await fetch("/api/ai-render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: renderPrompt,
+          variant: variant.id,
+          size: "1024x1024",
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const msg = result?.error || result?.message || "Error generando render IA.";
+        setRenders((current) => ({
+          ...current,
+          [variant.id]: { status: "error", imageUrl: "", error: msg },
+        }));
+        setMessage(`❌ ${msg}`);
+        return;
+      }
+
+      let imageUrl =
+        result?.imageUrl ||
+        result?.url ||
+        result?.render_image_url ||
+        result?.publicUrl ||
+        "";
+
+      const base64Image =
+        result?.image_base64 ||
+        result?.base64 ||
+        result?.b64_json ||
+        result?.image ||
+        "";
+
+      if (!imageUrl && base64Image) {
+        imageUrl = await uploadGeneratedRenderFromBase64(base64Image, result?.mime_type || "image/png");
+      }
+
+      if (!imageUrl) {
+        const msg = "La API respondió, pero no devolvió imagen. Revisa /api/ai-render.";
+        setRenders((current) => ({
+          ...current,
+          [variant.id]: { status: "error", imageUrl: "", error: msg },
+        }));
+        setMessage(`❌ ${msg}`);
+        console.log("Respuesta /api/ai-render:", result);
+        return;
+      }
+
+      setRenders((current) => ({
+        ...current,
+        [variant.id]: { status: "generado", imageUrl },
+      }));
+
+      await saveRenderUrlToDatabase(variant, imageUrl, renderPrompt);
+
+      setMessage(`✅ Render IA generado correctamente para variante ${variant.id}.`);
+    } catch (e: any) {
+      const msg = e?.message || "Error generando render.";
+      setRenders((current) => ({
+        ...current,
+        [variant.id]: { status: "error", imageUrl: "", error: msg },
+      }));
+      setMessage(`❌ ${msg}`);
+      console.error(e);
+    } finally {
+      setGeneratingVariant("");
+    }
+  }
+
+  function printRender(variant: RenderVariant) {
+    const imageUrl = renders[variant.id]?.imageUrl;
+
+    if (!imageUrl) {
+      setMessage("⚠️ Este render todavía no tiene imagen. Primero genera esta variante.");
+      return;
+    }
+
+    const win = window.open("", "_blank", "width=1200,height=900");
+    if (!win) {
+      setMessage("⚠️ El navegador bloqueó la ventana de impresión.");
+      return;
+    }
+
+    win.document.write(`
+      <html>
+        <head>
+          <title>RD WOOD SYSTEM - Render ${variant.id}</title>
+          <style>
+            body { margin: 0; padding: 30px; font-family: Arial, sans-serif; background: #fff; color: #111; }
+            h1 { margin: 0; font-size: 24px; }
+            h2 { margin: 8px 0 18px; font-size: 18px; color: #0369a1; }
+            img { width: 100%; max-height: 760px; object-fit: contain; border: 1px solid #ddd; }
+            .meta { margin-bottom: 18px; font-size: 13px; color: #333; }
+          </style>
+        </head>
+        <body>
+          <h1>RD WOOD SYSTEM</h1>
+          <h2>Render IA · Variante ${variant.id} · ${variant.name}</h2>
+          <div class="meta">
+            Proyecto: ${selectedQuote?.project_name || ""}<br/>
+            Cliente: ${selectedQuote?.client_name || ""}<br/>
+            Medidas: ${selectedQuote?.width_mm || ""} x ${selectedQuote?.depth_mm || ""} x ${selectedQuote?.height_mm || ""} mm<br/>
+            Módulos: ${modules.map((m) => `${m.name} x${m.quantity}`).join(" · ")}
+          </div>
+          <img src="${imageUrl}" />
+          <script>
+            window.onload = function() {
+              setTimeout(function(){ window.print(); }, 600);
+            }
+          </script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+
+    setMessage(`✅ Impresión preparada para variante ${variant.id}.`);
+  }
+
+  function approveRender(variant: RenderVariant) {
+    if (!selectedQuote) {
+      setMessage("⚠️ Selecciona una cotización primero.");
+      return;
+    }
+
+    const imageUrl = renders[variant.id]?.imageUrl;
+
+    if (!imageUrl) {
+      setMessage("⚠️ Primero genera el render de esta variante antes de aprobar.");
+      return;
+    }
+
+    const payload = {
+      quote: selectedQuote,
+      modules,
+      approved_variant: variant,
+      render_image_url: imageUrl,
+      prompt: buildPrompt(selectedQuote, modules, variant),
+      approved_at: new Date().toISOString(),
+    };
+
+    localStorage.setItem("rdwood_ia_design_approved", JSON.stringify(payload));
+
+    setRenders((current) => ({
+      ...current,
+      [variant.id]: { ...current[variant.id], status: "aprobado", imageUrl },
+    }));
+
+    void supabase
+      .from("quotes")
+      .update({
+        status: "render_aprobado_produccion",
+        render_image_url: imageUrl,
+      } as any)
+      .eq("id", selectedQuote.id);
+
+    setMessage(`✅ Variante ${variant.id} aprobada con ${modules.length} tipos de módulos y guardada para Producción IA/CNC.`);
+  }
+
+  const filteredQuotes = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return quotes;
+
+    return quotes.filter((q) =>
+      [q.quote_number, q.code, q.client_name, q.project_name, q.project_type, q.status]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(term)
+    );
+  }, [quotes, search]);
+
+  const prompt = useMemo(() => {
+    if (!selectedQuote) return "";
+    return buildPrompt(selectedQuote, modules, selectedVariant);
+  }, [selectedQuote, modules, selectedVariant]);
+
+  const totalModuleUnits = useMemo(() => {
+    return modules.reduce((sum, item) => sum + n(item.quantity, 1), 0);
+  }, [modules]);
+
+  if (!mounted) return null;
+
+  return (
+    <main className="min-h-screen bg-[#020817] px-6 py-8 text-white">
+      <div className="mx-auto max-w-[1400px] space-y-6">
+        <section className="rounded-[28px] border border-cyan-900/80 bg-[#07111f] p-6 shadow-2xl">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="inline-flex rounded-full border border-cyan-700 px-4 py-2 text-xs font-black uppercase tracking-[0.35em] text-cyan-300">
+                IA Diseño · OpenAI Render · Módulos Dinámicos
+              </div>
+              <h1 className="mt-4 text-4xl font-black tracking-tight lg:text-5xl">
+                Render IA para aprobación del cliente
+              </h1>
+              <p className="mt-3 max-w-4xl text-slate-300">
+                Este módulo toma una cotización, permite agregar todos los módulos necesarios,
+                maneja cantidades por módulo, genera variantes A/B/C/D/E con OpenAI y prepara
+                el render aprobado para Producción IA/CNC.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={loadQuotes}
+                className="rounded-2xl bg-slate-100 px-5 py-3 font-black text-slate-950 hover:bg-white"
+              >
+                ↻ RECARGAR
+              </button>
+              <button
+                type="button"
+                onClick={prepareIA}
+                className="rounded-2xl bg-cyan-500 px-5 py-3 font-black text-white hover:bg-cyan-400"
+              >
+                ✦ PREPARAR IA
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {message ? (
+          <section className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4 font-bold text-emerald-200">
+            {message}
+          </section>
+        ) : null}
+
+        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[420px_1fr]">
+          <aside className="rounded-[28px] border border-cyan-900/80 bg-[#07111f] p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-2xl font-black">Cotizaciones</h2>
+              <span className="rounded-full border border-cyan-700 px-3 py-1 text-xs font-black text-cyan-300">
+                {filteredQuotes.length}
+              </span>
+            </div>
+
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar cotización, cliente o proyecto..."
+              className="mb-4 w-full rounded-2xl border border-slate-700 bg-[#020817] px-4 py-3 font-bold text-white outline-none placeholder:text-slate-500 focus:border-cyan-400"
+            />
+
+            <div className="max-h-[720px] space-y-3 overflow-auto pr-2">
+              {loading ? (
+                <div className="rounded-2xl border border-slate-800 p-5 text-slate-400">
+                  Cargando...
+                </div>
+              ) : filteredQuotes.length === 0 ? (
+                <div className="rounded-2xl border border-slate-800 p-5 text-slate-400">
+                  No hay cotizaciones.
+                </div>
+              ) : (
+                filteredQuotes.map((q) => {
+                  const active = selectedQuote?.id === q.id;
+                  return (
+                    <button
+                      key={q.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedQuote(q);
+                        setMessage(`✅ Cotización seleccionada: ${q.project_name}`);
+                      }}
+                      className={[
+                        "w-full rounded-2xl border p-4 text-left transition",
+                        active
+                          ? "border-cyan-400 bg-cyan-950/50"
+                          : "border-slate-800 bg-[#020817] hover:border-cyan-700",
+                      ].join(" ")}
+                    >
+                      <div className="text-xs font-black uppercase tracking-[0.25em] text-cyan-300">
+                        {q.quote_number || q.code}
+                      </div>
+                      <div className="mt-1 text-xl font-black">{q.project_name}</div>
+                      <div className="text-sm text-slate-400">
+                        {q.client_name} · {q.project_type}
+                      </div>
+                      <div className="mt-2 inline-flex rounded-full bg-cyan-500/10 px-3 py-1 text-xs font-black text-cyan-300">
+                        {q.status}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </aside>
+
+          <section className="space-y-6">
+            {selectedQuote ? (
+              <>
+                <div className="rounded-[28px] border border-cyan-900/80 bg-[#07111f] p-6">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="text-xs font-black uppercase tracking-[0.35em] text-cyan-300">
+                        Cotización {selectedQuote.quote_number || selectedQuote.code}
+                      </div>
+                      <h2 className="mt-2 text-4xl font-black">{selectedQuote.project_name}</h2>
+                      <p className="mt-1 text-slate-400">
+                        {selectedQuote.client_name} · {selectedQuote.project_type}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-800 bg-[#020817] p-4">
+                      <div className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">
+                        Estado IA
+                      </div>
+                      <div className="mt-2 text-2xl font-black text-cyan-300">
+                        {selectedQuote.status}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-5">
+                    <Metric label="Ancho" value={`${selectedQuote.width_mm} mm`} />
+                    <Metric label="Prof." value={`${selectedQuote.depth_mm} mm`} />
+                    <Metric label="Alto" value={`${selectedQuote.height_mm} mm`} />
+                    <Metric label="Presupuesto" value={money(Number(selectedQuote.presupuesto || 0))} />
+                    <Metric label="Módulos" value={`${modules.length} tipos / ${totalModuleUnits} uds`} />
+                  </div>
+                </div>
+
+                <div className="rounded-[28px] border border-cyan-900/80 bg-[#07111f] p-6">
+                  <h3 className="text-2xl font-black">Datos tomados de cotización</h3>
+
+                  <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                    <Field label="Cliente" value={selectedQuote.client_name || ""} />
+                    <Field label="Teléfono" value={selectedQuote.client_phone || ""} />
+                    <Field label="Proyecto" value={selectedQuote.project_name || ""} />
+                    <Field label="Tipo" value={selectedQuote.project_type || ""} />
+                    <Field label="Estilo" value={selectedQuote.style || ""} />
+                    <Field label="Colores" value={selectedQuote.color_palette || ""} />
+                    <Field label="Ancho mm" value={String(selectedQuote.width_mm || "")} />
+                    <Field label="Profundidad mm" value={String(selectedQuote.depth_mm || "")} />
+                    <Field label="Alto mm" value={String(selectedQuote.height_mm || "")} />
+                  </div>
+
+                  <div className="mt-4">
+                    <div className="mb-2 text-xs font-black uppercase tracking-[0.25em] text-slate-400">
+                      Notas
+                    </div>
+                    <textarea
+                      readOnly
+                      value={selectedQuote.notes || ""}
+                      className="h-28 w-full rounded-2xl border border-slate-700 bg-[#020817] p-4 font-bold text-white outline-none"
+                    />
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-100">
+                    ⚠ IA Diseño genera render visual. BOM, CNC, QR, corte y canteo pasan al módulo Producción IA/CNC después de aprobar.
+                  </div>
+                </div>
+
+                <div className="rounded-[28px] border border-cyan-900/80 bg-[#07111f] p-6">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                      <h3 className="text-2xl font-black">Módulos dinámicos para render</h3>
+                      <p className="mt-1 text-sm text-slate-400">
+                        Agrega todos los módulos necesarios del proyecto. Cada módulo tiene cantidad, medidas, material, color y canteo.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={resetModules}
+                        className="rounded-2xl bg-slate-700 px-4 py-3 text-sm font-black hover:bg-slate-600"
+                      >
+                        Restaurar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={addModule}
+                        className="rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-black text-white hover:bg-cyan-400"
+                      >
+                        + Agregar módulo
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 space-y-4">
+                    {modules.map((m, index) => (
+                      <div key={m.id} className="rounded-2xl border border-slate-800 bg-[#020817] p-4">
+                        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                          <div>
+                            <div className="text-xs font-black uppercase tracking-[0.25em] text-cyan-300">
+                              Módulo #{index + 1}
+                            </div>
+                            <div className="mt-1 text-lg font-black">
+                              {m.name} · x{m.quantity}
+                            </div>
+                          </div>
+
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => duplicateModule(m)}
+                              className="rounded-xl bg-slate-700 px-3 py-2 text-xs font-black hover:bg-slate-600"
+                            >
+                              Duplicar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteModule(m.id)}
+                              className="rounded-xl bg-red-600 px-3 py-2 text-xs font-black hover:bg-red-500"
+                            >
+                              Eliminar
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+                          <EditableField label="Nombre" value={m.name} onChange={(v) => updateModule(m.id, "name", v)} />
+                          <EditableField label="Tipo" value={m.type} onChange={(v) => updateModule(m.id, "type", v)} />
+                          <EditableField label="Cantidad" value={String(m.quantity)} onChange={(v) => updateModule(m.id, "quantity", v)} />
+                          <EditableField label="Material" value={m.material} onChange={(v) => updateModule(m.id, "material", v)} />
+                          <EditableField label="Color" value={m.color} onChange={(v) => updateModule(m.id, "color", v)} />
+                          <EditableField label="Ancho mm" value={String(m.width_mm)} onChange={(v) => updateModule(m.id, "width_mm", v)} />
+                          <EditableField label="Prof. mm" value={String(m.depth_mm)} onChange={(v) => updateModule(m.id, "depth_mm", v)} />
+                          <EditableField label="Alto mm" value={String(m.height_mm)} onChange={(v) => updateModule(m.id, "height_mm", v)} />
+                          <EditableField label="Canteo" value={m.edge} onChange={(v) => updateModule(m.id, "edge", v)} />
+                        </div>
+
+                        <div className="mt-4">
+                          <EditableField label="Notas del módulo" value={m.notes} onChange={(v) => updateModule(m.id, "notes", v)} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-[28px] border border-cyan-900/80 bg-[#07111f] p-6">
+                  <h3 className="text-2xl font-black">Variantes A/B/C/D/E · Render OpenAI</h3>
+
+                  <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    {VARIANTS.map((variant) => {
+                      const active = selectedVariant.id === variant.id;
+                      const renderState = renders[variant.id] || { status: "pendiente", imageUrl: "" };
+                      const isGenerating = generatingVariant === variant.id || renderState.status === "generando";
+
+                      return (
+                        <div
+                          key={variant.id}
+                          className={[
+                            "rounded-2xl border bg-[#020817] p-4",
+                            active ? "border-cyan-400" : "border-slate-800",
+                          ].join(" ")}
+                        >
+                          <div className="text-xs font-black uppercase tracking-[0.25em] text-cyan-300">
+                            Variante {variant.id}
+                          </div>
+                          <h4 className="mt-1 text-xl font-black">
+                            {variant.id} · {variant.name}
+                          </h4>
+                          <p className="mt-2 text-sm text-slate-400">{variant.concept}</p>
+
+                          <div className="mt-4 flex aspect-video items-center justify-center overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-slate-500">
+                            {renderState.imageUrl ? (
+                              <img
+                                src={renderState.imageUrl}
+                                alt={`Render ${variant.id}`}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : isGenerating ? (
+                              <div className="text-center">
+                                <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-cyan-500 border-t-transparent" />
+                                <div className="font-black text-cyan-300">Generando render OpenAI...</div>
+                              </div>
+                            ) : renderState.status === "error" ? (
+                              <div className="p-4 text-center text-red-300">
+                                {renderState.error || "Error generando render"}
+                              </div>
+                            ) : (
+                              <div className="text-center">
+                                <div className="font-black text-slate-400">Render pendiente</div>
+                                <div className="mt-1 text-xs text-slate-600">Presiona Generar</div>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="mt-4 grid grid-cols-3 gap-3">
+                            <button
+                              type="button"
+                              disabled={isGenerating}
+                              onClick={() => generateVariant(variant)}
+                              className="rounded-xl bg-cyan-500 px-3 py-3 font-black hover:bg-cyan-400 disabled:opacity-50"
+                            >
+                              {isGenerating ? "Generando..." : "Generar"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => printRender(variant)}
+                              className="rounded-xl bg-slate-700 px-3 py-3 font-black hover:bg-slate-600"
+                            >
+                              Imprimir
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => approveRender(variant)}
+                              className="rounded-xl bg-emerald-600 px-3 py-3 font-black hover:bg-emerald-500"
+                            >
+                              Aprobar
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="rounded-[28px] border border-cyan-900/80 bg-[#07111f] p-6">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <h3 className="text-2xl font-black">Prompt IA maestro</h3>
+                    <button
+                      type="button"
+                      onClick={copyPrompt}
+                      className="rounded-2xl bg-cyan-500 px-5 py-3 font-black text-white hover:bg-cyan-400"
+                    >
+                      COPIAR PROMPT IA
+                    </button>
+                  </div>
+
+                  <textarea
+                    readOnly
+                    value={prompt}
+                    className="mt-4 h-80 w-full rounded-2xl border border-slate-700 bg-[#020817] p-4 font-mono text-sm text-cyan-100 outline-none"
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="rounded-[28px] border border-cyan-900 bg-[#07111f] p-12 text-center text-slate-400">
+                Selecciona una cotización.
+              </div>
+            )}
+          </section>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-[#020817] p-4">
+      <div className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">
+        {label}
+      </div>
+      <div className="mt-1 text-xl font-black">{value}</div>
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <label className="block">
+      <div className="mb-2 text-xs font-black uppercase tracking-[0.25em] text-slate-400">
+        {label}
+      </div>
+      <input
+        readOnly
+        value={value}
+        className="w-full rounded-2xl border border-slate-700 bg-[#020817] px-4 py-3 font-bold text-white outline-none"
+      />
+    </label>
+  );
+}
+
+function EditableField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block">
+      <div className="mb-2 text-xs font-black uppercase tracking-[0.25em] text-slate-400">
+        {label}
+      </div>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-2xl border border-slate-700 bg-[#020817] px-4 py-3 font-bold text-white outline-none focus:border-cyan-400"
+      />
+    </label>
+  );
+}

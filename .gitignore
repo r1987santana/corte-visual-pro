@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/backups/
+*.zip
 
 # next.js
 /.next/

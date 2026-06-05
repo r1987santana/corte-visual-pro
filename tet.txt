@@ -1,0 +1,3 @@
+npm install xlsx recharts jspdf jspdf-autotable qrcode
+npm run dev
+http://localhost:3000/login

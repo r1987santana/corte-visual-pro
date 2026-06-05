@@ -1,0 +1,21 @@
+{
+  "name": "RD Wood System Pro",
+  "short_name": "RD Wood",
+  "description": "RD Wood System Pro - ERP, RRHH, nomina, asistencia y portal del empleado",
+  "start_url": "/dashboard-ceo",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#2563eb",
+  "orientation": "portrait",
+  "categories": ["business", "productivity"],
+  "lang": "es",
+  "icons": [
+    {
+      "src": "/rdwood-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
