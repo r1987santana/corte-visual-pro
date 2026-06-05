@@ -89,19 +89,22 @@ function safeId(prefix: string) {
 
 function detectMemoryIntent(message: string) {
   const text = normalizeIntentText(message);
+  const wantsRecall =
+    text.includes("que recuerdas") ||
+    text.includes("memoria") ||
+    text.includes("recuerdas de") ||
+    text.includes("que tienes guardado") ||
+    text.includes("que sabes de");
+
   return {
     wantsRemember:
-      text.includes("recuerda") ||
+      !wantsRecall &&
+      (/\brecuerda\b/.test(text) ||
       text.includes("memoriza") ||
       text.includes("guarda esto") ||
       text.includes("ten pendiente") ||
-      text.includes("no olvides"),
-    wantsRecall:
-      text.includes("que recuerdas") ||
-      text.includes("memoria") ||
-      text.includes("recuerdas de") ||
-      text.includes("que tienes guardado") ||
-      text.includes("que sabes de"),
+      text.includes("no olvides")),
+    wantsRecall,
   };
 }
 
@@ -301,6 +304,27 @@ export async function POST(req: Request) {
     const isCEO = isCEOModule(moduleName, pathname);
     const isCut = isCutModule(moduleName, pathname);
 
+    if (memoryIntent.wantsRecall) {
+      const rows = await loadAssistantMemory({
+        supabaseClient: session.supabase,
+        moduleName: moduleName || "global",
+        query: message,
+      });
+      const answer = formatMemoryAnswer(rows);
+
+      return NextResponse.json({
+        ok: true,
+        answer,
+        response: answer,
+        message: answer,
+        memories: rows,
+        meta: {
+          module: moduleName || "global",
+          memoryAction: "recalled",
+        },
+      });
+    }
+
     if (memoryIntent.wantsRemember) {
       const memory = await saveAssistantMemory({
         supabaseClient: session.supabase,
@@ -327,27 +351,6 @@ export async function POST(req: Request) {
         meta: {
           module: moduleName || "global",
           memoryAction: "saved",
-        },
-      });
-    }
-
-    if (memoryIntent.wantsRecall) {
-      const rows = await loadAssistantMemory({
-        supabaseClient: session.supabase,
-        moduleName: moduleName || "global",
-        query: message,
-      });
-      const answer = formatMemoryAnswer(rows);
-
-      return NextResponse.json({
-        ok: true,
-        answer,
-        response: answer,
-        message: answer,
-        memories: rows,
-        meta: {
-          module: moduleName || "global",
-          memoryAction: "recalled",
         },
       });
     }
