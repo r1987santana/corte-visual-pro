@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import type { PermissionKey } from "@/lib/saas/saas-client";
 
@@ -14,13 +14,22 @@ export type ApiSessionUser = {
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SESSION_LAST_SEEN_WRITE_MS = 60 * 1000;
 
-export function getServiceSupabase() {
+let serviceSupabase: SupabaseClient<any> | null = null;
+
+export function getServiceSupabase(): SupabaseClient<any> {
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error("Faltan NEXT_PUBLIC_SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY.");
   }
 
-  return createClient(supabaseUrl, serviceRoleKey);
+  if (!serviceSupabase) {
+    serviceSupabase = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+
+  return serviceSupabase;
 }
 
 function tokenFromRequest(request: Request) {
@@ -54,7 +63,7 @@ export async function requireApiSession(request: Request, permission?: Permissio
   const supabase = getServiceSupabase();
   const { data: session, error: sessionError } = await supabase
     .from("app_sessions")
-    .select("app_user_id,email,status,expires_at")
+    .select("app_user_id,email,status,expires_at,last_seen_at")
     .eq("session_token", token)
     .eq("status", "active")
     .maybeSingle();
@@ -104,10 +113,13 @@ export async function requireApiSession(request: Request, permission?: Permissio
     };
   }
 
-  await supabase
-    .from("app_sessions")
-    .update({ last_seen_at: new Date().toISOString() })
-    .eq("session_token", token);
+  const lastSeenMs = session.last_seen_at ? new Date(session.last_seen_at).getTime() : 0;
+  if (!lastSeenMs || Date.now() - lastSeenMs > SESSION_LAST_SEEN_WRITE_MS) {
+    await supabase
+      .from("app_sessions")
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq("session_token", token);
+  }
 
   return { ok: true as const, supabase, user: apiUser, token };
 }

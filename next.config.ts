@@ -21,11 +21,17 @@ const securityHeaders = [
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "SAMEORIGIN" },
+  { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
     key: "Permissions-Policy",
     value: "camera=(self), geolocation=(self), microphone=(), payment=(), usb=(), fullscreen=(self)",
   },
+];
+
+const noStoreApiHeaders = [
+  { key: "Cache-Control", value: "no-store, max-age=0" },
+  { key: "Pragma", value: "no-cache" },
 ];
 
 const nextConfig: NextConfig = {
@@ -34,6 +40,10 @@ const nextConfig: NextConfig = {
       {
         source: "/:path*",
         headers: securityHeaders,
+      },
+      {
+        source: "/api/:path*",
+        headers: noStoreApiHeaders,
       },
     ];
   },

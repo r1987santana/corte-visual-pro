@@ -217,7 +217,7 @@ export async function validateSession(options: { force?: boolean } = {}) {
 
   const { data, error } = await supabase
     .from("app_sessions")
-    .select("*")
+    .select("status,expires_at,closed_reason")
     .eq("session_token", token)
     .maybeSingle();
 
