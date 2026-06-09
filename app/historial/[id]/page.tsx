@@ -45,7 +45,7 @@ export default function HistorialDetalle() {
   }
 
   function exportPDF() {
-    const doc = new jsPDF();
+    const doc = new jsPDF("p", "mm", "letter");
 
     doc.text("Detalle de Corte", 14, 15);
 

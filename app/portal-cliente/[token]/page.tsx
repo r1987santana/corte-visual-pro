@@ -1970,9 +1970,9 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#050816] px-6 text-white">
-        <section className="max-w-xl rounded-3xl border border-cyan-300/20 bg-slate-950/80 p-8 text-center">
-          <p className="text-xs font-black uppercase tracking-[0.3em] text-cyan-300">RD Wood System</p>
-          <h1 className="mt-4 text-3xl font-black">Abriendo portal privado</h1>
+        <section className="w-full max-w-xl rounded-3xl border border-cyan-300/20 bg-slate-950/80 p-5 text-center sm:p-8">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-300 sm:tracking-[0.3em]">RD Wood System</p>
+          <h1 className="mt-4 break-words text-2xl font-black sm:text-3xl">Abriendo portal privado</h1>
           <p className="mt-3 text-sm font-semibold text-slate-400">Validando enlace del cliente.</p>
         </section>
       </main>
@@ -1982,9 +1982,9 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
   if (!project) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#050816] px-6 text-white">
-        <section className="max-w-xl rounded-3xl border border-amber-300/30 bg-slate-950/80 p-8 text-center">
+        <section className="w-full max-w-xl rounded-3xl border border-amber-300/30 bg-slate-950/80 p-5 text-center sm:p-8">
           <AlertTriangle className="mx-auto text-amber-300" size={42} />
-          <h1 className="mt-4 text-3xl font-black">Link no disponible</h1>
+          <h1 className="mt-4 break-words text-2xl font-black sm:text-3xl">Link no disponible</h1>
           <p className="mt-3 text-sm font-semibold text-slate-300">
             {message || "Este enlace no esta activo. Solicita uno nuevo al equipo RD Wood."}
           </p>
@@ -1995,44 +1995,44 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
 
   return (
     <main className="min-h-screen bg-[#050816] text-white">
-      <section className="relative min-h-[720px] overflow-hidden">
+      <section className="relative min-h-[620px] overflow-hidden sm:min-h-[720px]">
         <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${approvedRenderImage})` }} />
         <div className="absolute inset-0 bg-black/55" />
         <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-black/20" />
         <div className="absolute inset-0 bg-gradient-to-t from-[#050816] via-transparent to-transparent" />
 
-        <div className="relative mx-auto flex min-h-[720px] max-w-7xl flex-col justify-center px-6 py-12">
-          <div className="inline-flex w-fit items-center gap-2 rounded-full border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-xs font-black uppercase tracking-[0.28em] text-cyan-100 backdrop-blur">
+        <div className="relative mx-auto flex min-h-[620px] max-w-7xl flex-col justify-center px-4 py-10 sm:min-h-[720px] sm:px-6 sm:py-12">
+          <div className="inline-flex w-fit max-w-full items-center gap-2 rounded-full border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-100 backdrop-blur sm:px-4 sm:text-xs sm:tracking-[0.28em]">
             <Sparkles size={15} />
-            Portal Comercial · {project?.code || "RD WOOD"}
+            <span className="truncate">Portal Comercial · {project?.code || "RD WOOD"}</span>
           </div>
 
-          <h1 className="mt-8 max-w-4xl text-6xl font-black leading-tight md:text-8xl">
+          <h1 className="mt-6 max-w-4xl break-words text-4xl font-black leading-tight sm:mt-8 sm:text-6xl md:text-8xl">
             {project?.name || project?.project_name || "Proyecto RD Wood"}
           </h1>
 
-          <p className="mt-4 max-w-2xl text-xl font-semibold text-slate-200">
+          <p className="mt-4 max-w-2xl text-base font-semibold leading-relaxed text-slate-200 sm:text-xl">
             Bienvenido, {project?.client_name || "cliente"}. Aquí puedes ver tu proyecto, garantía, pagos, referidos, nuevos servicios y reportar incidencias.
           </p>
 
-          <div className="mt-8 flex flex-wrap gap-4">
-            <button onClick={() => setOpenClaim(true)} className="inline-flex items-center gap-3 rounded-2xl bg-amber-300 px-6 py-4 text-sm font-black uppercase text-slate-950">
+          <div className="mt-6 grid gap-3 sm:mt-8 sm:flex sm:flex-wrap sm:gap-4">
+            <button onClick={() => setOpenClaim(true)} className="inline-flex w-full items-center justify-center gap-3 rounded-2xl bg-amber-300 px-5 py-3 text-sm font-black uppercase text-slate-950 sm:w-auto sm:px-6 sm:py-4">
               <AlertTriangle size={18} />
               Reportar incidencia
             </button>
 
-            <a href="https://wa.me/18096905636" target="_blank" className="inline-flex items-center gap-3 rounded-2xl bg-emerald-400 px-6 py-4 text-sm font-black uppercase text-slate-950">
+            <a href="https://wa.me/18096905636" target="_blank" className="inline-flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-400 px-5 py-3 text-sm font-black uppercase text-slate-950 sm:w-auto sm:px-6 sm:py-4">
               <MessageCircle size={18} />
               Hablar con mi asesor
             </a>
 
-            <button className="inline-flex items-center gap-3 rounded-2xl border border-white/20 bg-white/10 px-6 py-4 text-sm font-black uppercase text-white backdrop-blur">
+            <button className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-black uppercase text-white backdrop-blur sm:w-auto sm:px-6 sm:py-4">
               <ArrowDownToLine size={18} />
               Descargar garantía
             </button>
           </div>
 
-          <div className="mt-10 grid max-w-6xl grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-6">
+          <div className="mt-8 grid max-w-6xl grid-cols-2 gap-3 sm:mt-10 sm:grid-cols-3 sm:gap-4 xl:grid-cols-6">
             <HeroCard title="Estado" value={statusLabel(project?.status)} />
             <HeroCard title="Progreso" value={`${progress}%`} />
             <HeroCard title="Inicial 60%" value={payment.initialCovered ? "Pagado" : currency(payment.initialDue)} />
@@ -2043,7 +2043,7 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-6 py-10">
+      <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
         {message && (
           <div className="mb-6 rounded-3xl border border-cyan-300/30 bg-cyan-300/10 p-5 text-sm font-black text-cyan-100">
             {message}
@@ -2051,11 +2051,11 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
         )}
 
         {needsDesignDecision && (
-          <div className="mb-8 rounded-[34px] border border-cyan-300/25 bg-white/[0.04] p-5 md:p-7">
+          <div className="mb-6 rounded-3xl border border-cyan-300/25 bg-white/[0.04] p-4 sm:p-5 md:mb-8 md:rounded-[34px] md:p-7">
             <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.35em] text-cyan-200">Seleccion de diseño</p>
-                <h2 className="mt-2 text-4xl font-black">Elige el render que apruebas</h2>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-200 sm:tracking-[0.35em]">Seleccion de diseño</p>
+                <h2 className="mt-2 text-2xl font-black sm:text-4xl">Elige el render que apruebas</h2>
                 <p className="mt-2 max-w-3xl text-sm font-semibold text-slate-400">
                   Revisa las propuestas generadas para tu proyecto. Al aprobar una version, RD Wood la recibe directamente para preparar la cotizacion.
                 </p>
@@ -2069,11 +2069,11 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
               {designVariants.map((variant) => {
                 const approved = isApprovedRenderStatus(variant.status);
                 return (
-                  <div key={variant.id} className={["overflow-hidden rounded-3xl border bg-slate-950", approved ? "border-emerald-300/50" : "border-white/10"].join(" ")}>
+                  <div key={variant.id} className={["overflow-hidden rounded-2xl border bg-slate-950 sm:rounded-3xl", approved ? "border-emerald-300/50" : "border-white/10"].join(" ")}>
                     <div className="flex items-center justify-between gap-3 border-b border-white/10 p-4">
                       <div>
-                        <p className="text-xs font-black uppercase tracking-[0.25em] text-cyan-200">Variante {variant.variant}</p>
-                        <h3 className="mt-1 text-xl font-black">{variantName(variant)}</h3>
+                        <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-200 sm:tracking-[0.25em]">Variante {variant.variant}</p>
+                        <h3 className="mt-1 break-words text-lg font-black sm:text-xl">{variantName(variant)}</h3>
                       </div>
                       {approved && <BadgeCheck className="text-emerald-300" />}
                     </div>
@@ -2104,11 +2104,11 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
         )}
 
         {hasApprovedRender && (
-          <div className="mb-8 rounded-[34px] border border-cyan-300/25 bg-white/[0.04] p-5 md:p-7">
+          <div className="mb-6 rounded-3xl border border-cyan-300/25 bg-white/[0.04] p-4 sm:p-5 md:mb-8 md:rounded-[34px] md:p-7">
             <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.35em] text-cyan-200">Render aprobado</p>
-                <h2 className="mt-2 text-4xl font-black">Visual autorizado del proyecto</h2>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-200 sm:tracking-[0.35em]">Render aprobado</p>
+                <h2 className="mt-2 text-2xl font-black sm:text-4xl">Visual autorizado del proyecto</h2>
               </div>
               <span className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-4 py-2 text-xs font-black uppercase text-emerald-100">
                 Aprobado por cliente
@@ -2125,11 +2125,11 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
         )}
 
         {portalQuote && (
-          <div className="mb-8 rounded-[34px] border border-emerald-300/30 bg-emerald-300/10 p-5 md:p-7">
+          <div className="mb-6 rounded-3xl border border-emerald-300/30 bg-emerald-300/10 p-4 sm:p-5 md:mb-8 md:rounded-[34px] md:p-7">
             <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.35em] text-emerald-200">Cotizacion final</p>
-                <h2 className="mt-2 text-4xl font-black">{quoteCode(portalQuote)}</h2>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-200 sm:tracking-[0.35em]">Cotizacion final</p>
+                <h2 className="mt-2 break-words text-2xl font-black sm:text-4xl">{quoteCode(portalQuote)}</h2>
                 <p className="mt-2 max-w-3xl text-sm font-semibold text-emerald-50">
                   {quoteReadOnly
                     ? "Proyecto entregado. Esta cotizacion queda disponible como historico comercial del proyecto."
@@ -2141,7 +2141,7 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
               </span>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
               <InfoRow label="Precio final" value={currency(quoteTotal(portalQuote))} />
               <InfoRow label="Inicial 60%" value={currency(portalQuote.initial_60)} />
               <InfoRow label="20% entrega" value={currency(portalQuote.delivery_20)} />
@@ -2151,22 +2151,22 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
             </div>
 
             {portalQuoteItems.length > 0 && (
-              <div className="mt-6 overflow-hidden rounded-3xl border border-white/10 bg-slate-950/70">
-                <div className="grid grid-cols-[1fr_90px_120px] gap-3 bg-slate-950 px-4 py-3 text-xs font-black uppercase tracking-[0.2em] text-slate-400 md:grid-cols-[1fr_90px_150px_150px]">
+              <div className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/70 sm:rounded-3xl">
+                <div className="grid grid-cols-[minmax(0,1fr)_64px_96px] gap-2 bg-slate-950 px-3 py-3 text-[10px] font-black uppercase tracking-[0.12em] text-slate-400 sm:grid-cols-[minmax(0,1fr)_80px_120px] sm:px-4 sm:text-xs sm:tracking-[0.2em] md:grid-cols-[minmax(0,1fr)_90px_150px_150px]">
                   <div>Partida</div>
                   <div>Cant.</div>
                   <div className="hidden md:block">Unitario</div>
                   <div>Total</div>
                 </div>
                 {portalQuoteItems.map((item, index) => (
-                  <div key={item.id || index} className="grid grid-cols-[1fr_90px_120px] gap-3 border-t border-white/10 px-4 py-3 text-sm font-semibold md:grid-cols-[1fr_90px_150px_150px]">
-                    <div>
+                  <div key={item.id || index} className="grid grid-cols-[minmax(0,1fr)_64px_96px] gap-2 border-t border-white/10 px-3 py-3 text-xs font-semibold sm:grid-cols-[minmax(0,1fr)_80px_120px] sm:px-4 sm:text-sm md:grid-cols-[minmax(0,1fr)_90px_150px_150px]">
+                    <div className="min-w-0">
                       <div className="font-black text-white">{item.description || item.code || "Partida"}</div>
                       {item.code && <div className="mt-1 text-xs text-slate-500">{item.code}</div>}
                     </div>
-                    <div>{quoteItemQuantity(item).toFixed(2)} {item.unit || ""}</div>
+                    <div className="break-words">{quoteItemQuantity(item).toFixed(2)} {item.unit || ""}</div>
                     <div className="hidden md:block">{currency(quoteItemUnitPrice(item))}</div>
-                    <div className="font-black text-emerald-200">{currency(quoteItemTotal(item))}</div>
+                    <div className="break-words font-black text-emerald-200">{currency(quoteItemTotal(item))}</div>
                   </div>
                 ))}
               </div>
@@ -2208,11 +2208,11 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
         )}
 
         {openClaim && (
-          <div className="mb-8 rounded-[34px] border border-amber-300/30 bg-amber-300/10 p-6 md:p-8">
+          <div className="mb-6 rounded-3xl border border-amber-300/30 bg-amber-300/10 p-4 sm:p-6 md:mb-8 md:rounded-[34px] md:p-8">
             <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.35em] text-amber-200">Reclamo de garantía</p>
-                <h2 className="mt-2 text-4xl font-black">Reportar incidencia</h2>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-200 sm:tracking-[0.35em]">Reclamo de garantía</p>
+                <h2 className="mt-2 text-2xl font-black sm:text-4xl">Reportar incidencia</h2>
                 <p className="mt-2 max-w-2xl text-sm font-semibold text-amber-50">
                   El cliente puede tomar fotos con su cámara o subirlas desde galería. Se crea ticket automático en Postventa.
                 </p>
@@ -2233,7 +2233,7 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
                   <h3 className="text-xl font-black">Fotos del problema</h3>
                 </div>
 
-                <label className="flex cursor-pointer flex-col items-center justify-center rounded-3xl border border-dashed border-amber-300/40 bg-amber-300/10 p-8 text-center hover:bg-amber-300/15">
+                <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-amber-300/40 bg-amber-300/10 p-5 text-center hover:bg-amber-300/15 sm:rounded-3xl sm:p-8">
                   <UploadCloud className="mb-3 text-amber-200" size={36} />
                   <div className="text-lg font-black">Tomar foto o subir desde galería</div>
                   <div className="mt-2 text-sm font-semibold text-amber-50">
@@ -2278,27 +2278,27 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
           </div>
         )}
 
-        <div className="rounded-[34px] border border-white/10 bg-white/[0.04] p-6 md:p-8">
-          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-3 sm:p-5 md:rounded-[34px] md:p-8">
+          <div className="flex flex-col gap-2 [&>p]:hidden sm:[&>p]:block md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.35em] text-cyan-200">Avance inteligente</p>
-              <h2 className="mt-2 text-4xl font-black">Timeline del Proyecto</h2>
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-200 sm:text-xs sm:tracking-[0.35em]">Avance inteligente</p>
+              <h2 className="mt-1 text-xl font-black sm:mt-2 sm:text-3xl md:text-4xl">Timeline del Proyecto</h2>
             </div>
             <p className="max-w-xl text-sm font-semibold text-slate-400">Tu proyecto actualizado con información comercial y de servicio.</p>
           </div>
 
-          <div className="mt-8 grid gap-4 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-9">
+          <div className="mt-4 grid grid-cols-3 gap-2 sm:mt-6 md:mt-8 md:grid-cols-3 md:gap-4 xl:grid-cols-5 2xl:grid-cols-9">
             {timelineBase.map((step, index) => {
               const Icon = step.icon;
               const done = timelineDone(index, progress);
               const active = !done && (index === 0 || timelineDone(index - 1, progress));
               return (
-                <div key={step.title} className={["min-w-0 rounded-3xl border p-4 md:min-h-[190px]", active ? "border-cyan-300/60 bg-cyan-300/15" : done ? "border-emerald-300/30 bg-emerald-300/10" : "border-white/10 bg-slate-950/50"].join(" ")}>
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10">
-                    <Icon className={done ? "text-emerald-300" : active ? "text-cyan-200" : "text-slate-400"} />
+                <div key={step.title} className={["min-w-0 rounded-2xl border p-2 text-center md:min-h-[190px] md:rounded-3xl md:p-4 md:text-left", active ? "border-cyan-300/60 bg-cyan-300/15" : done ? "border-emerald-300/30 bg-emerald-300/10" : "border-white/10 bg-slate-950/50"].join(" ")}>
+                  <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-xl bg-white/10 md:mx-0 md:h-12 md:w-12 md:rounded-2xl">
+                    <Icon className={["h-4 w-4 md:h-6 md:w-6", done ? "text-emerald-300" : active ? "text-cyan-200" : "text-slate-400"].join(" ")} />
                   </div>
-                  <h3 className="mt-4 break-words text-base font-black leading-tight">{step.title}</h3>
-                  <p className="mt-2 break-words text-sm font-medium leading-relaxed text-slate-400">{step.desc}</p>
+                  <h3 className="mt-2 break-words text-[11px] font-black leading-tight md:mt-4 md:text-base">{step.title}</h3>
+                  <p className="mt-2 hidden break-words text-sm font-medium leading-relaxed text-slate-400 md:block">{step.desc}</p>
                 </div>
               );
             })}
@@ -2306,9 +2306,9 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
         </div>
 
         {readyForFinalDelivery && (
-          <div className="mt-8 rounded-[34px] border border-emerald-300/30 bg-emerald-300/[0.08] p-6 md:p-8">
-            <p className="text-xs font-black uppercase tracking-[0.35em] text-emerald-200">{finalDeliveryClosed ? "Entrega completada" : "Calidad listo"}</p>
-            <h2 className="mt-2 text-4xl font-black">{finalDeliveryClosed ? "Tu proyecto fue entregado" : "Tu proyecto fue aprobado por calidad"}</h2>
+          <div className="mt-8 rounded-3xl border border-emerald-300/30 bg-emerald-300/[0.08] p-4 sm:p-6 md:rounded-[34px] md:p-8">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-200 sm:tracking-[0.35em]">{finalDeliveryClosed ? "Entrega completada" : "Calidad listo"}</p>
+            <h2 className="mt-2 text-2xl font-black sm:text-4xl">{finalDeliveryClosed ? "Tu proyecto fue entregado" : "Tu proyecto fue aprobado por calidad"}</h2>
             <p className="mt-2 max-w-3xl text-sm font-semibold text-emerald-50/90">
               {finalDeliveryClosed
                 ? "La entrega final fue registrada. Tu garantía de 1 año queda activa desde la entrega."
@@ -2338,18 +2338,18 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
         )}
 
         {traceability && !readyForFinalDelivery && (
-          <div className="mt-8 rounded-[34px] border border-cyan-300/20 bg-cyan-300/[0.06] p-6 md:p-8">
+          <div className="mt-8 rounded-3xl border border-cyan-300/20 bg-cyan-300/[0.06] p-4 sm:p-6 md:rounded-[34px] md:p-8">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.35em] text-cyan-200">Trazabilidad de produccion</p>
-                <h2 className="mt-2 text-4xl font-black">Tu proyecto en planta</h2>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-200 sm:tracking-[0.35em]">Trazabilidad de produccion</p>
+                <h2 className="mt-2 text-2xl font-black sm:text-4xl">Tu proyecto en planta</h2>
                 <p className="mt-2 text-sm font-semibold text-slate-400">
                   Seguimiento real por modulos y piezas escaneadas en corte, ensamblado, transporte e instalacion.
                 </p>
               </div>
-              <div className="rounded-3xl border border-cyan-300/20 bg-slate-950/60 p-4 text-right">
+              <div className="rounded-2xl border border-cyan-300/20 bg-slate-950/60 p-4 text-left sm:text-right md:rounded-3xl">
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Orden</p>
-                <p className="mt-1 text-lg font-black text-cyan-100">{traceability.orderCodes.join(" / ") || "Produccion"}</p>
+                <p className="mt-1 break-words text-base font-black text-cyan-100 sm:text-lg">{traceability.orderCodes.join(" / ") || "Produccion"}</p>
                 <p className="mt-1 text-xs font-bold text-slate-500">Ultima actualizacion: {portalDate(traceability.lastUpdated)}</p>
               </div>
             </div>
@@ -2358,17 +2358,17 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
               <div className="mt-6 rounded-3xl border border-amber-300/40 bg-amber-300/12 p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-[0.3em] text-amber-100">Accion requerida</p>
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-100 sm:tracking-[0.3em]">Accion requerida</p>
                     <h3 className="mt-2 text-2xl font-black text-white">Tu orden esta empacada y lista para transporte</h3>
                     <p className="mt-2 max-w-3xl text-sm font-semibold text-amber-50/90">
                       Para que Transportacion pueda llevar tu orden debes completar el pago del 20% de entrega.
                       Luego de recibir ese pago, RD Wood agenda contigo la fecha de entrega.
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-amber-200/30 bg-slate-950/70 p-4 text-right">
+                  <div className="rounded-2xl border border-amber-200/30 bg-slate-950/70 p-4 text-left sm:text-right">
                     <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-100">Monto pendiente</p>
-                    <p className="mt-1 text-3xl font-black text-amber-100">{currency(payment.deliveryDue)}</p>
-                    <a href="https://wa.me/18096905636" target="_blank" className="mt-3 inline-flex rounded-2xl bg-amber-300 px-4 py-3 text-sm font-black uppercase text-slate-950">
+                    <p className="mt-1 break-words text-2xl font-black text-amber-100 sm:text-3xl">{currency(payment.deliveryDue)}</p>
+                    <a href="https://wa.me/18096905636" target="_blank" className="mt-3 inline-flex w-full justify-center rounded-2xl bg-amber-300 px-4 py-3 text-sm font-black uppercase text-slate-950 sm:w-auto">
                       Coordinar pago y entrega
                     </a>
                   </div>
@@ -2380,16 +2380,16 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
               <div className="mt-6 rounded-3xl border border-emerald-300/40 bg-emerald-300/12 p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-[0.3em] text-emerald-100">Pago recibido</p>
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-100 sm:tracking-[0.3em]">Pago recibido</p>
                     <h3 className="mt-2 text-2xl font-black text-white">Tu orden esta liberada para transporte</h3>
                     <p className="mt-2 max-w-3xl text-sm font-semibold text-emerald-50/90">
                       Ya registramos el pago del 20% de entrega. El equipo de RD Wood coordina contigo la agenda de entrega y transporte.
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-emerald-200/30 bg-slate-950/70 p-4 text-right">
+                  <div className="rounded-2xl border border-emerald-200/30 bg-slate-950/70 p-4 text-left sm:text-right">
                     <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-100">20% entrega</p>
                     <p className="mt-1 text-3xl font-black text-emerald-100">Pagado</p>
-                    <a href="https://wa.me/18096905636" target="_blank" className="mt-3 inline-flex rounded-2xl bg-emerald-300 px-4 py-3 text-sm font-black uppercase text-slate-950">
+                    <a href="https://wa.me/18096905636" target="_blank" className="mt-3 inline-flex w-full justify-center rounded-2xl bg-emerald-300 px-4 py-3 text-sm font-black uppercase text-slate-950 sm:w-auto">
                       Coordinar fecha de entrega
                     </a>
                   </div>
@@ -2397,7 +2397,7 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
               </div>
             )}
 
-            <div className="mt-6 grid gap-4 md:grid-cols-5">
+            <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 md:grid-cols-6">
               <TraceStat label="Piezas" value={traceability.totalPieces} />
               <TraceStat label="En proceso" value={traceability.inProcess} />
               <TraceStat label="Cortadas" value={traceability.cut} />
@@ -2440,20 +2440,20 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
 
         <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_430px]">
           <div className="space-y-8">
-            <div className="rounded-[34px] border border-white/10 bg-white/[0.04] p-6 md:p-8">
+            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 sm:p-6 md:rounded-[34px] md:p-8">
               <div className="flex items-center gap-3">
                 <ImageIcon className="text-cyan-200" />
-                <h2 className="text-3xl font-black">Galería del Proyecto</h2>
+                <h2 className="text-2xl font-black sm:text-3xl">Galería del Proyecto</h2>
               </div>
 
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 {gallery.map((img: any) => (
-                  <div key={img.id} className="overflow-hidden rounded-3xl border border-white/10 bg-slate-950">
+                  <div key={img.id} className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950 sm:rounded-3xl">
                     <img
                       src={img.asset_url}
                       alt={img.title || "Foto"}
                       className={[
-                        "h-72 w-full transition duration-500",
+                        "h-56 w-full transition duration-500 sm:h-72",
                         img.id === "approved-render" ? "object-contain" : "object-cover hover:scale-105",
                       ].join(" ")}
                     />
@@ -2462,21 +2462,21 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
               </div>
             </div>
 
-            <div className="rounded-[34px] border border-white/10 bg-white/[0.04] p-6 md:p-8">
+            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 sm:p-6 md:rounded-[34px] md:p-8">
               <div className="flex items-center gap-3">
                 <ShoppingBag className="text-cyan-200" />
-                <h2 className="text-3xl font-black">Recomendado para ti</h2>
+                <h2 className="text-2xl font-black sm:text-3xl">Recomendado para ti</h2>
               </div>
               <p className="mt-2 text-sm text-slate-400">Servicios y accesorios que complementan tu proyecto.</p>
 
-              <div className="mt-6 grid gap-4 md:grid-cols-3">
+              <div className="mt-6 grid gap-4 sm:grid-cols-2 md:grid-cols-3">
                 {catalog.map((item) => (
-                  <div key={item.id} className="overflow-hidden rounded-3xl border border-white/10 bg-slate-950">
+                  <div key={item.id} className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950 sm:rounded-3xl">
                     {item.image_url && <img src={item.image_url} className="h-40 w-full object-cover" alt={item.title} />}
                     <div className="p-4">
-                      <div className="text-lg font-black">{item.title}</div>
+                      <div className="break-words text-lg font-black">{item.title}</div>
                       <p className="mt-2 line-clamp-3 text-sm text-slate-400">{item.description}</p>
-                      <div className="mt-4 text-xl font-black text-cyan-200">{currency(item.price, item.currency || "DOP")}</div>
+                      <div className="mt-4 break-words text-lg font-black text-cyan-200 sm:text-xl">{currency(item.price, item.currency || "DOP")}</div>
                       <button type="button" onClick={() => submitCatalogInterest(item)} className="mt-4 block w-full rounded-2xl bg-cyan-400 px-4 py-3 text-center text-sm font-black uppercase text-slate-950">
                         Solicitar
                       </button>
@@ -2486,14 +2486,14 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
               </div>
 
               <div className="mt-6 grid gap-4 md:grid-cols-2">
-                <div className="rounded-3xl border border-emerald-300/20 bg-emerald-300/[0.07] p-5">
+                <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.07] p-4 sm:rounded-3xl sm:p-5">
                   <div className="mb-4 flex items-center gap-3">
                     <UserPlus className="text-emerald-200" />
-                    <h3 className="text-xl font-black">Recomienda a un amigo</h3>
+                    <h3 className="text-lg font-black sm:text-xl">Recomienda a un amigo</h3>
                   </div>
                   <div className="rounded-2xl border border-emerald-400/20 bg-slate-950/70 p-4">
-                    <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-200">Tu codigo</p>
-                    <p className="mt-2 text-2xl font-black text-white">{referralCodeForProject(project)}</p>
+                    <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-200 sm:tracking-[0.22em]">Tu codigo</p>
+                    <p className="mt-2 break-words text-xl font-black text-white sm:text-2xl">{referralCodeForProject(project)}</p>
                     <button
                       onClick={() => navigator.clipboard?.writeText(referralLinkForProject(token, project))}
                       className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-400 px-3 py-2 text-xs font-black uppercase text-slate-950"
@@ -2510,10 +2510,10 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
                   </div>
                 </div>
 
-                <div className="rounded-3xl border border-cyan-300/20 bg-cyan-300/[0.07] p-5">
+                <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.07] p-4 sm:rounded-3xl sm:p-5">
                   <div className="mb-4 flex items-center gap-3">
                     <HeartHandshake className="text-cyan-200" />
-                    <h3 className="text-xl font-black">Solicitar nuevo proyecto</h3>
+                    <h3 className="text-lg font-black sm:text-xl">Solicitar nuevo proyecto</h3>
                   </div>
                   <textarea value={newProject} onChange={(e) => setNewProject(e.target.value)} placeholder="Ejemplo: Quiero cotizar un closet, cocina o mueble de TV..." className="h-32 w-full rounded-2xl border border-white/10 bg-slate-950 p-4 text-sm font-semibold outline-none focus:border-cyan-300" />
                   <button onClick={submitNewProject} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-cyan-400 px-4 py-3 text-sm font-black uppercase text-slate-950">
@@ -2527,7 +2527,7 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
           <div className="space-y-6">
             <SideCard title="Mis reclamos" icon={<AlertTriangle className="text-amber-200" />}>
               {claims.length === 0 ? (
-                <div className="rounded-3xl border border-dashed border-white/15 p-8 text-center text-slate-400">
+                <div className="rounded-2xl border border-dashed border-white/15 p-6 text-center text-slate-400 sm:rounded-3xl sm:p-8">
                   <Clock className="mx-auto mb-3" />
                   Sin reclamos registrados.
                 </div>
@@ -2557,9 +2557,9 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
             </SideCard>
 
             <SideCard title="Balance del proyecto" icon={<Wallet className="text-cyan-200" />}>
-              <div className="rounded-3xl border border-cyan-300/20 bg-cyan-300/[0.07] p-5">
-                <p className="text-xs font-black uppercase tracking-[0.28em] text-cyan-200">Pendiente actual</p>
-                <p className="mt-2 text-4xl font-black text-white">{currency(nextPayment.value || payment.balance)}</p>
+              <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.07] p-4 sm:rounded-3xl sm:p-5">
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-200 sm:tracking-[0.28em]">Pendiente actual</p>
+                <p className="mt-2 break-words text-3xl font-black text-white sm:text-4xl">{currency(nextPayment.value || payment.balance)}</p>
                 <p className="mt-1 text-sm font-bold text-slate-400">{nextPayment.label}</p>
               </div>
 
@@ -2570,7 +2570,7 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
                 <MiniMoney label="Balance" value={currency(payment.balance)} />
               </div>
 
-              <div className="space-y-2 rounded-3xl border border-white/10 bg-slate-950/60 p-4">
+              <div className="space-y-2 rounded-2xl border border-white/10 bg-slate-950/60 p-3 sm:rounded-3xl sm:p-4">
                 <PaymentStep label="Inicial 60%" done={payment.initialCovered} value={payment.initialCovered ? "Cubierto" : currency(payment.initialDue)} />
                 <PaymentStep label="20% despacho" done={payment.deliveryCovered} value={payment.deliveryCovered ? "Cubierto" : currency(payment.deliveryDue)} />
                 <PaymentStep label="Final instalación" done={payment.finalCovered} value={payment.finalCovered ? "Cubierto" : currency(payment.finalDue)} />
@@ -2605,27 +2605,27 @@ const [portalQuoteItems, setPortalQuoteItems] = useState<PortalQuoteItem[]>([]);
 
 function HeroCard({ title, value }: { title: string; value: string }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-black/35 p-5 backdrop-blur">
-      <p className="text-xs font-black uppercase tracking-[0.25em] text-cyan-200">{title}</p>
-      <p className="mt-2 truncate text-2xl font-black capitalize">{value}</p>
+    <div className="rounded-2xl border border-white/10 bg-black/35 p-3 backdrop-blur sm:rounded-3xl sm:p-5">
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-200 sm:text-xs sm:tracking-[0.25em]">{title}</p>
+      <p className="mt-2 break-words text-lg font-black capitalize sm:text-2xl">{value}</p>
     </div>
   );
 }
 
 function TraceStat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-4">
-      <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-black text-white">{value}</p>
+    <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3 sm:rounded-3xl sm:p-4">
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500 sm:text-xs sm:tracking-[0.22em]">{label}</p>
+      <p className="mt-2 break-words text-xl font-black text-white sm:text-2xl">{value}</p>
     </div>
   );
 }
 
 function MiniMoney({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
-      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">{label}</p>
-      <p className="mt-2 truncate text-lg font-black text-white">{value}</p>
+    <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3 sm:p-4">
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500 sm:tracking-[0.22em]">{label}</p>
+      <p className="mt-2 break-words text-base font-black text-white sm:text-lg">{value}</p>
     </div>
   );
 }
@@ -2646,10 +2646,10 @@ function PaymentStep({ label, done, value }: { label: string; done: boolean; val
 
 function SideCard({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="rounded-[34px] border border-white/10 bg-white/[0.04] p-6">
+    <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 sm:rounded-[34px] sm:p-6">
       <div className="mb-5 flex items-center gap-3">
         {icon}
-        <h2 className="text-2xl font-black">{title}</h2>
+        <h2 className="text-xl font-black sm:text-2xl">{title}</h2>
       </div>
       <div className="space-y-3">{children}</div>
     </div>
@@ -2658,9 +2658,9 @@ function SideCard({ title, icon, children }: { title: string; icon: React.ReactN
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
-      <p className="text-xs font-black uppercase tracking-[0.25em] text-slate-500">{label}</p>
-      <p className="mt-1 break-words text-lg font-black">{value}</p>
+    <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-3 sm:p-4">
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500 sm:text-xs sm:tracking-[0.25em]">{label}</p>
+      <p className="mt-1 break-words text-base font-black sm:text-lg">{value}</p>
     </div>
   );
 }

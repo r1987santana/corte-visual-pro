@@ -28,12 +28,14 @@ function wrapped(doc: jsPDF, text: string, x: number, y: number, w: number) {
 }
 
 export function generateTechnicalVisitPDF(data: TechnicalVisitReportData) {
-  const doc = new jsPDF("p", "mm", "a4");
+  const doc = new jsPDF("p", "mm", "letter");
   const margin = 14;
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
   let y = 16;
 
   doc.setFillColor(2, 8, 23);
-  doc.rect(0, 0, 210, 34, "F");
+  doc.rect(0, 0, pageW, 34, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
@@ -127,7 +129,7 @@ export function generateTechnicalVisitPDF(data: TechnicalVisitReportData) {
     doc.setPage(i);
     doc.setFontSize(8);
     doc.setTextColor(100);
-    doc.text(`RD Wood System · Reporte automático · Página ${i}/${total}`, margin, 288);
+    doc.text(`RD Wood System · Reporte automático · Página ${i}/${total}`, margin, pageH - 10);
   }
 
   return doc;

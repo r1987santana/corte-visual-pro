@@ -476,6 +476,7 @@ export default function ContratoProyectoClient() {
           <head>
             <title>RECIBO ${incomeCode}</title>
             <style>
+              @page { size: letter; margin: 8mm; }
               body { margin: 0; padding: 22px; font-family: Arial, sans-serif; color: #111; background: #fff; }
               .page { max-width: 880px; margin: 0 auto; }
               .copy { border: 1.5px solid #111; border-radius: 16px; padding: 18px; margin-bottom: 18px; page-break-inside: avoid; }
@@ -632,6 +633,7 @@ export default function ContratoProyectoClient() {
         <head>
           <title>${selected.contract_code}</title>
           <style>
+            @page{size:letter;margin:14mm}
             body{font-family:Arial;margin:34px;color:#111;line-height:1.45}
             h1{font-size:28px;margin:0}
             h2{font-size:17px;margin-top:24px;border-bottom:2px solid #111;padding-bottom:5px}
