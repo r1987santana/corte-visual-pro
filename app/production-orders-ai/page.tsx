@@ -413,6 +413,7 @@ export default function ProductionOrdersAIPage() {
         <head>
           <title>${selectedOrder.order_code}</title>
           <style>
+            @page{size:letter;margin:12mm}
             body{font-family:Arial;margin:28px;color:#111}
             .brand{letter-spacing:6px;color:#0066aa;font-weight:900;font-size:13px}
             h1{font-size:28px;margin:10px 0 4px}

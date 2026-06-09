@@ -22,11 +22,14 @@ async function syncProductionOrderRequisitionStatus(supabase: any, productionOrd
   if (!productionOrderId) return;
 
   const nextStatus = productionStatusFromRequisition(status);
+  const readyForCutting = nextStatus === "materiales_despachados";
   const { error } = await supabase
     .from("production_orders")
     .update({
       status: nextStatus,
       estado: nextStatus,
+      ready_for_cutting: readyForCutting,
+      cutting_status: readyForCutting ? "materiales_despachados" : nextStatus,
       updated_at: new Date().toISOString(),
     })
     .eq("id", productionOrderId);

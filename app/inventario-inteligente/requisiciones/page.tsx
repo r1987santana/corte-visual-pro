@@ -997,6 +997,7 @@ export default function RequisicionesAlmacenPage() {
         <head>
           <title>${reqCode(req)} - Requisicion</title>
           <style>
+            @page{size:letter;margin:10mm}
             body { margin: 0; padding: 24px; font-family: Arial, sans-serif; color: #111; background: #fff; }
             .top { display: flex; justify-content: space-between; gap: 20px; border-bottom: 2px solid #111; padding-bottom: 12px; }
             .brand { font-size: 12px; font-weight: 900; letter-spacing: 4px; color: #006b8f; text-transform: uppercase; }

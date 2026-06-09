@@ -5,6 +5,14 @@ import { supabase } from "@/lib/supabase";
 import { apiFetch } from "@/lib/saas/auth-client";
 import { createProductionFromProject } from "@/lib/productionEngine";
 import {
+  buildProductionMaterialVerificationRows,
+  desiredProductionMaterialToken,
+  productionMaterialColorToken,
+  productionMaterialKindToken,
+  productionMaterialTokensCompatible,
+  summarizeProductionMaterialVerificationRows,
+} from "@/lib/productionMaterialPlan";
+import {
   AlertTriangle,
   Boxes,
   ClipboardList,
@@ -13,6 +21,7 @@ import {
   Plus,
   RefreshCcw,
   Save,
+  ShieldCheck,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -266,6 +275,78 @@ function cleanText(value: unknown) {
     .trim();
 }
 
+function materialColorTokenFromText(value: unknown) {
+  return productionMaterialColorToken(value);
+}
+
+function includesAnyText(text: string, words: string[]) {
+  return words.some((word) => text.includes(word));
+}
+
+function isWoodColorToken(token: string) {
+  return token === "roble" || token === "bardolino";
+}
+
+function productColorMatchesToken(productToken: string, desiredToken: string) {
+  return productionMaterialTokensCompatible(productToken, desiredToken);
+}
+
+function isShelfStructurePartText(text: string) {
+  return includesAnyText(text, [
+    "lateral",
+    "tapa superior",
+    "tapa inferior",
+    "techo",
+    "piso",
+    "fondo",
+  ]);
+}
+
+function isShelfWhitePartText(text: string) {
+  if (text.includes("entrepano")) return true;
+  if (text.includes("repisa") && !isShelfStructurePartText(text)) return true;
+  return false;
+}
+
+function isTvBaseWoodPartText(text: string) {
+  return includesAnyText(text, [
+    "lateral",
+    "piso",
+    "techo",
+    "frente gaveta",
+    "division interna",
+    "divisor",
+    "fondo",
+    "liston",
+    "faja",
+  ]);
+}
+
+function productColorToken(product?: InventoryProduct | null) {
+  if (!product) return "";
+  return materialColorTokenFromText(
+    [
+      productName(product),
+      product.material,
+      product.name,
+      product.product_name,
+      product.description,
+      product.descripcion,
+      product.code,
+      product.sku,
+    ].join(" ")
+  );
+}
+
+function itemDesiredMaterialToken(item: ProductionItem) {
+  return desiredProductionMaterialToken(item);
+}
+
+function productMatchesDesiredToken(product: InventoryProduct, token: string) {
+  if (!token) return true;
+  return productColorMatchesToken(productColorToken(product), token);
+}
+
 function productReserved(p?: InventoryProduct | null) {
   return num(p?.reserved_stock ?? p?.stock_reserved);
 }
@@ -293,11 +374,61 @@ function itemTechnicalName(item: ProductionItem) {
 function isBoardLike(item: ProductionItem) {
   const text = cleanText(itemTechnicalName(item));
   const hasDims = Number(item.width_mm || 0) > 0 && Number(item.height_mm || 0) > 0;
-  return hasDims && /(melamina|mdf|tablero|plywood|fondo)/.test(text);
+  if (isEdgeLike(item)) return false;
+  if (productionMaterialKindToken(text) === "board") return true;
+  if (hasDims && !/(bisagra|corredera|tornillo|minifix|soporte|herraje|tirador|broca|tarugo|pegamento|cola)/.test(text)) {
+    return true;
+  }
+  return false;
 }
 
 function isEdgeLike(item: ProductionItem) {
-  return cleanText(itemTechnicalName(item)).includes("canto");
+  return productionMaterialKindToken(itemTechnicalName(item)) === "edge";
+}
+
+function inventoryProductSearchText(product?: InventoryProduct | null) {
+  if (!product) return "";
+  return cleanText(
+    [
+      productName(product),
+      product.material,
+      product.name,
+      product.product_name,
+      product.description,
+      product.descripcion,
+      product.code,
+      product.sku,
+      product.category,
+      product.subcategory,
+      product.unit,
+      product.unidad,
+    ].join(" ")
+  );
+}
+
+function isInventoryBoardProduct(product?: InventoryProduct | null) {
+  const text = inventoryProductSearchText(product);
+  const hasSheetSize = Number(product?.sheet_width_mm || product?.ancho_mm || 0) > 0 || Number(product?.sheet_height_mm || product?.largo_mm || 0) > 0;
+  const badWords = [
+    "canto",
+    "pvc",
+    "bisagra",
+    "corredera",
+    "tornillo",
+    "minifix",
+    "soporte",
+    "herrajes",
+    "herraje",
+    "tirador",
+  ];
+
+  if (badWords.some((word) => text.includes(word))) return false;
+  return hasSheetSize || /(melamina|tablero|mdf|plywood|hoja)/.test(text);
+}
+
+function isInventoryEdgeProduct(product?: InventoryProduct | null) {
+  const text = inventoryProductSearchText(product);
+  return text.includes("canto") || text.includes("pvc");
 }
 
 function sheetSizeForMaterial(name: string, product?: InventoryProduct | null) {
@@ -348,10 +479,18 @@ function inventoryAliases(product: InventoryProduct) {
 }
 
 function findInventoryProductForItem(item: ProductionItem, products: InventoryProduct[]) {
+  const desiredToken = itemDesiredMaterialToken(item);
+  const wantsBoard = isBoardLike(item);
+  const wantsEdge = isEdgeLike(item);
+  const matchesKind = (product: InventoryProduct) => {
+    if (wantsBoard) return isInventoryBoardProduct(product);
+    if (wantsEdge) return isInventoryEdgeProduct(product);
+    return true;
+  };
   const realId = getRealInventoryId(item);
   if (realId) {
     const byId = products.find((product) => String(product.id) === String(realId));
-    if (byId) return byId;
+    if (byId && productMatchesDesiredToken(byId, desiredToken) && matchesKind(byId)) return byId;
   }
 
   const exactCandidates = [
@@ -365,17 +504,26 @@ function findInventoryProductForItem(item: ProductionItem, products: InventoryPr
     .filter(Boolean)
     .map((value) => cleanText(value));
 
+  const colorCandidates = desiredToken ? products.filter((product) => productMatchesDesiredToken(product, desiredToken)) : products;
+  const typedCandidates = colorCandidates.filter(matchesKind);
+  const candidates = typedCandidates.length ? typedCandidates : colorCandidates;
+
   for (const candidate of exactCandidates) {
-    const exact = products.find((product) => inventoryAliases(product).includes(candidate));
+    const exact = candidates.find((product) => inventoryAliases(product).includes(candidate));
     if (exact) return exact;
   }
 
   const fuzzyCandidates = exactCandidates.filter((candidate) => candidate.length >= 8);
   for (const candidate of fuzzyCandidates) {
-    const fuzzy = products.find((product) =>
+    const fuzzy = candidates.find((product) =>
       inventoryAliases(product).some((alias) => alias.length >= 8 && (alias.includes(candidate) || candidate.includes(alias)))
     );
     if (fuzzy) return fuzzy;
+  }
+
+  if (desiredToken && wantsBoard) {
+    const boardMatch = candidates.find((product) => isInventoryBoardProduct(product) && cleanText(productName(product)).includes("melamina"));
+    if (boardMatch) return boardMatch;
   }
 
   return null;
@@ -399,7 +547,7 @@ function buildRequisitionLines(items: ProductionItem[], products: InventoryProdu
 
   for (const item of items) {
     const inventoryId = getRealInventoryId(item);
-    const product = (inventoryId ? byId.get(inventoryId) : null) || findInventoryProductForItem(item, products);
+    const product = findInventoryProductForItem(item, products) || (inventoryId ? byId.get(inventoryId) : null);
     const linkedInventoryId = product?.id || inventoryId || null;
     const materialName = product ? productName(product) : itemMaterialName(item);
     const itemForClass = { ...item, name: `${item.name} ${materialName}` };
@@ -888,10 +1036,28 @@ export default function ProduccionBomProClient() {
             unit_cost: Number(piece.unit_cost ?? piece.costo_unitario ?? piece.unit_cost_real ?? 0),
             total_cost: 0,
             source: "bom",
+            part_name:
+              piece.part_name ||
+              piece.piece_name ||
+              piece.nombre_pieza ||
+              piece.product_name ||
+              piece.nombre_producto ||
+              piece.material_name ||
+              `Pieza BOM ${index + 1}`,
+            module_name:
+              piece.module_name ||
+              piece.modulo ||
+              piece.category ||
+              piece.source ||
+              "Sin módulo",
+            width_mm: Number(piece.width_mm ?? piece.ancho_mm ?? piece.width ?? piece.ancho ?? 0),
+            height_mm: Number(piece.height_mm ?? piece.alto_mm ?? piece.length_mm ?? piece.largo_mm ?? piece.height ?? piece.largo ?? 0),
+            thickness_mm: Number(piece.thickness_mm ?? piece.grosor_mm ?? piece.thickness ?? piece.grosor ?? 18),
           },
           products
         );
         const linkedInventoryId = matchedProduct?.id || realInventoryId || "";
+        const resolvedMaterialName = matchedProduct ? productName(matchedProduct) : materialName;
         const unitCost = productCost(matchedProduct || ({} as InventoryProduct)) || Number(piece.unit_cost ?? piece.costo_unitario ?? piece.unit_cost_real ?? 0);
         const total = Number(piece.total_cost ?? piece.costo_total ?? piece.total_cost_real ?? qty * unitCost);
 
@@ -908,7 +1074,7 @@ export default function ProduccionBomProClient() {
           product_name: piece.product_name || displayName,
           item_name: piece.item_name || null,
           material: piece.material || null,
-          material_name: materialName || null,
+          material_name: resolvedMaterialName || null,
           code:
             piece.piece_code ||
             piece.inventory_code ||
@@ -1007,7 +1173,7 @@ export default function ProduccionBomProClient() {
               module_name: item.module_name || item.category || "Sin módulo",
               part_name: item.part_name || item.name || `Pieza ${index + 1}`,
               name: item.name || item.part_name || `Pieza ${index + 1}`,
-              material_name: item.name || "Material sin nombre",
+              material_name: item.material_name || item.material || item.name || "Material sin nombre",
               inventory_item_id:
                 item.inventory_item_id ||
                 item.product_id ||
@@ -1116,6 +1282,12 @@ export default function ProduccionBomProClient() {
   const saleValue = mode === "bom" ? num(selectedRecipe?.sale_price) * recipeUnits : newRecipeSalePrice;
   const profit = saleValue - totalProductionCost;
   const margin = saleValue > 0 ? (profit / saleValue) * 100 : 0;
+  const materialVerificationRows = useMemo(() => buildProductionMaterialVerificationRows(items), [items]);
+  const materialVerificationSummary = useMemo(
+    () => summarizeProductionMaterialVerificationRows(materialVerificationRows),
+    [materialVerificationRows]
+  );
+  const hasMaterialMismatches = materialVerificationSummary.mismatch > 0;
 
   function addManualProduct(product: InventoryProduct) {
     const stock = productStock(product);
@@ -1186,6 +1358,8 @@ export default function ProduccionBomProClient() {
           inventory_item_id: product.id,
           product_id: product.id,
           material_id: product.id,
+          material: name,
+          material_name: name,
           code: product.code || item.code || "",
           category: product.category || product.subcategory || item.category || "General",
           unit,
@@ -1303,9 +1477,11 @@ export default function ProduccionBomProClient() {
       const originalPiece: any = item as any;
       const realInventoryId = getRealInventoryId(item);
       const linkedProduct =
-        products.find((p) => String(p.id) === String(realInventoryId)) ||
-        findInventoryProductForItem(item, products);
+        findInventoryProductForItem(item, products) ||
+        products.find((p) => String(p.id) === String(realInventoryId));
+      const linkedInventoryId = linkedProduct?.id || realInventoryId || null;
       const linkedName = linkedProduct ? productName(linkedProduct) : itemMaterialName(item);
+      const linkedUnitCost = linkedProduct ? productCost(linkedProduct) : item.unit_cost;
       const widthMm = Number(originalPiece.width_mm ?? originalPiece.ancho_mm ?? originalPiece.width ?? originalPiece.ancho ?? 0) || 0;
       const heightMm = Number(originalPiece.height_mm ?? originalPiece.alto_mm ?? originalPiece.length_mm ?? originalPiece.largo_mm ?? originalPiece.height ?? originalPiece.largo ?? 0) || 0;
       const thicknessMm = Number(originalPiece.thickness_mm ?? originalPiece.grosor_mm ?? originalPiece.thickness ?? originalPiece.grosor ?? 18) || 18;
@@ -1315,6 +1491,9 @@ export default function ProduccionBomProClient() {
       return {
         production_order_id: orderId,
         order_id: orderId,
+        product_id: linkedInventoryId,
+        inventory_item_id: linkedInventoryId,
+        material_id: linkedInventoryId,
         product_name: item.name,
         material_name: linkedName,
         nombre_producto: item.name,
@@ -1335,10 +1514,10 @@ export default function ProduccionBomProClient() {
         unit: linkedProduct ? productUnit(linkedProduct) : item.unit,
         quantity: item.quantity,
         cantidad: item.quantity,
-        unit_cost: linkedProduct ? productCost(linkedProduct) : item.unit_cost,
-        costo_unitario: linkedProduct ? productCost(linkedProduct) : item.unit_cost,
-        total_cost: item.total_cost,
-        costo_total: item.total_cost,
+        unit_cost: linkedUnitCost,
+        costo_unitario: linkedUnitCost,
+        total_cost: item.quantity * linkedUnitCost,
+        costo_total: item.quantity * linkedUnitCost,
         stock_before: linkedProduct ? productStock(linkedProduct) : item.stock,
         stock_after: linkedProduct ? productStock(linkedProduct) : item.stock,
         source,
@@ -1552,6 +1731,11 @@ export default function ProduccionBomProClient() {
   async function processProduction() {
     if (items.length === 0) {
       alert("Agrega materiales o carga una receta BOM.");
+      return;
+    }
+
+    if (hasMaterialMismatches) {
+      alert("Hay diferencias de material/color. Corrige la verificacion antes de crear la requisicion.");
       return;
     }
 
@@ -2055,6 +2239,76 @@ export default function ProduccionBomProClient() {
               </div>
             ))}
           </div>
+
+          {items.length > 0 && (
+            <div
+              className={`mb-4 rounded-3xl border p-4 ${
+                hasMaterialMismatches
+                  ? "border-red-500/40 bg-red-950/20"
+                  : "border-emerald-500/30 bg-emerald-950/10"
+              }`}
+            >
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className={hasMaterialMismatches ? "text-red-300" : "text-emerald-300"} size={20} />
+                  <h3 className="font-black">Verificacion de materiales antes de requisicion</h3>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs font-black">
+                  <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-emerald-200">
+                    OK {materialVerificationSummary.ok}
+                  </span>
+                  <span className="rounded-full border border-red-400/30 bg-red-500/10 px-3 py-1 text-red-200">
+                    Choques {materialVerificationSummary.mismatch}
+                  </span>
+                  <span className="rounded-full border border-amber-400/30 bg-amber-500/10 px-3 py-1 text-amber-200">
+                    Sin vinculo {materialVerificationSummary.unlinked}
+                  </span>
+                </div>
+              </div>
+
+              <div className="max-h-[220px] overflow-auto rounded-2xl border border-slate-800">
+                <table className="w-full min-w-[760px] text-xs">
+                  <thead className="sticky top-0 bg-[#020617] text-left uppercase text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">Pieza</th>
+                      <th className="px-3 py-2">Modulo</th>
+                      <th className="px-3 py-2">Esperado</th>
+                      <th className="px-3 py-2">Vinculado</th>
+                      <th className="px-3 py-2">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {materialVerificationRows.slice(0, 40).map((row, index) => (
+                      <tr key={`${row.moduleName}-${row.pieceName}-${index}`} className="border-t border-slate-800">
+                        <td className="px-3 py-2 font-bold text-slate-200">{row.pieceName}</td>
+                        <td className="px-3 py-2 text-slate-400">{row.moduleName}</td>
+                        <td className="px-3 py-2 text-cyan-100">
+                          {row.expectedColor} · {row.expectedMaterial}
+                        </td>
+                        <td className="px-3 py-2 text-slate-300">{row.actualMaterial}</td>
+                        <td
+                          className={`px-3 py-2 font-black ${
+                            row.status === "mismatch"
+                              ? "text-red-300"
+                              : row.status === "ok"
+                                ? "text-emerald-300"
+                                : "text-amber-300"
+                          }`}
+                        >
+                          {row.message}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {materialVerificationRows.length > 40 && (
+                <p className="mt-2 text-xs font-bold text-slate-500">
+                  Mostrando 40 de {materialVerificationRows.length} lineas.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="mb-4 rounded-3xl border border-slate-800 bg-[#020617] p-4">
             <SummaryRow label="Materiales" value={items.length} />

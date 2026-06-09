@@ -13,6 +13,11 @@
 "use client";
 
 import { supabase } from "@/lib/supabase";
+import {
+  enrichProductionModulesMaterialRoles,
+  getProductionModuleRole,
+  type ProductionMaterialProjectContext,
+} from "./productionMaterialPlan";
 
 export type ProjectLike = {
   id: string;
@@ -51,10 +56,20 @@ export type ApprovedModule = {
   material?: string;
   color?: string;
   edge?: string;
+  material_roles?: Record<string, MaterialRole>;
+  visual_materials?: Record<string, MaterialRole>;
   notes?: string;
   unit?: string;
   total_cost?: number;
   total_price?: number;
+};
+
+type MaterialRole = {
+  material?: string | null;
+  color?: string | null;
+  edge?: string | null;
+  applies_to?: string[] | null;
+  source?: string | null;
 };
 
 type InventoryProduct = {
@@ -252,14 +267,15 @@ function moduleHeight(module: ApprovedModule, fallback = 720) {
 function colorLabelFromText(value: any, fallback = "Bardolino") {
   const raw = normalizeText(value);
 
-  if (raw.includes("bardolino") || raw.includes("baldolino") || raw.includes("madera") || raw.includes("wood")) {
+  if (raw.includes("roble")) return "Roble";
+  if (raw.includes("bardolino") || raw.includes("baldolino")) {
     return "Bardolino";
   }
 
   if (raw.includes("blanco")) return "Blanco Alto Brillo";
-  if (raw.includes("roble")) return "Roble";
   if (raw.includes("caoba")) return "Caoba";
   if (raw.includes("negro")) return "Negro";
+  if (raw.includes("madera") || raw.includes("wood")) return "Roble";
 
   return fallback;
 }
@@ -297,8 +313,8 @@ function materialFromModule(module: ApprovedModule) {
   const raw = normalizeText(`${material} ${color}`);
 
   if (raw.includes("caoba")) return MELAMINE_CAOBA_18;
-  if (raw.includes("bardolino") || raw.includes("baldolino") || raw.includes("madera")) return MELAMINE_BARDOLINO_18;
-  if (raw.includes("roble")) return MELAMINE_ROBLE_18;
+  if (raw.includes("roble") || raw.includes("madera")) return MELAMINE_ROBLE_18;
+  if (raw.includes("bardolino") || raw.includes("baldolino")) return MELAMINE_BARDOLINO_18;
   if (raw.includes("blanco")) return MELAMINE_WHITE_18;
   if (raw.includes("negro")) return MELAMINE_NEGRO_18;
 
@@ -309,11 +325,53 @@ function edgeFromModule(module: ApprovedModule) {
   const raw = normalizeText(`${module.edge || ""} ${module.color || ""}`);
 
   if (raw.includes("caoba")) return EDGE_CAOBA_22;
-  if (raw.includes("bardolino") || raw.includes("baldolino") || raw.includes("madera")) return EDGE_BARDOLINO_22;
+  if (raw.includes("roble") || raw.includes("madera")) return EDGE_ROBLE_22;
+  if (raw.includes("bardolino") || raw.includes("baldolino")) return EDGE_BARDOLINO_22;
   if (raw.includes("blanco")) return EDGE_WHITE_22;
-  if (raw.includes("roble")) return EDGE_ROBLE_22;
 
   return EDGE_BARDOLINO_22;
+}
+
+function roleFromModule(module: ApprovedModule, keys: string[]) {
+  const roles = module.material_roles || module.visual_materials || {};
+  for (const key of keys) {
+    const role = roles[key];
+    if (role) return role;
+  }
+  return null;
+}
+
+function roleText(role?: MaterialRole | null) {
+  if (!role) return "";
+  return firstText(role.material, role.color, role.edge, "");
+}
+
+function materialFromRole(module: ApprovedModule, keys: string[], fallback: string) {
+  const role = roleFromModule(module, keys);
+  const text = roleText(role);
+  if (!text) return fallback;
+
+  const raw = normalizeText(text);
+  if (raw.includes("melamina") || raw.includes("mdf")) {
+    if (raw.includes("caoba")) return MELAMINE_CAOBA_18;
+    if (raw.includes("roble") || raw.includes("madera")) return MELAMINE_ROBLE_18;
+    if (raw.includes("bardolino") || raw.includes("baldolino")) return MELAMINE_BARDOLINO_18;
+    if (raw.includes("blanco")) return MELAMINE_WHITE_18;
+    if (raw.includes("negro")) return MELAMINE_NEGRO_18;
+    return text;
+  }
+
+  return materialForColor(text);
+}
+
+function colorFromRole(module: ApprovedModule, keys: string[], fallback: string) {
+  const role = roleFromModule(module, keys);
+  return colorLabelFromText(firstText(role?.color, role?.material, ""), fallback);
+}
+
+function edgeFromRole(module: ApprovedModule, keys: string[], fallback: string) {
+  const role = roleFromModule(module, keys);
+  return role?.edge || edgeForColor(firstText(role?.color, role?.material, fallback));
 }
 
 function estimatePieceCost(length: number, width: number, thickness = 18) {
@@ -451,12 +509,17 @@ function generatePiecesForModule(module: ApprovedModule, moduleIndex: number): G
   const d = moduleDepth(module, 450);
   const h = moduleHeight(module, 720);
 
-  const material = materialFromModule(module);
+  const primaryRole = getProductionModuleRole(module, ["primary"], colorFromModule(module));
+  const material = primaryRole.material;
   const fondoMaterial = "MDF Fondo 6mm 4x8";
-  const tvExteriorMaterial = MELAMINE_BARDOLINO_18;
-  const tvInteriorMaterial = MELAMINE_WHITE_18;
-  const tvExteriorEdge = EDGE_BARDOLINO_22;
-  const tvInteriorEdge = EDGE_WHITE_22;
+  const tvExteriorRole = getProductionModuleRole(module, ["structure", "fronts", "primary"], colorFromModule(module));
+  const tvInteriorRole = getProductionModuleRole(module, ["shelves", "interior"], "Blanco Alto Brillo");
+  const tvExteriorMaterial = tvExteriorRole.material;
+  const tvExteriorColor = tvExteriorRole.color;
+  const tvInteriorMaterial = tvInteriorRole.material;
+  const tvInteriorColor = tvInteriorRole.color;
+  const tvExteriorEdge = tvExteriorRole.edge;
+  const tvInteriorEdge = tvInteriorRole.edge;
 
   const isTvBase =
     name.includes("credenza") ||
@@ -498,13 +561,13 @@ function generatePiecesForModule(module: ApprovedModule, moduleIndex: number): G
       const drawerFrontWidth = Math.max(100, Math.round(w / drawerCount) - 4);
       const drawerFrontHeight = Math.max(100, h - 80);
 
-      addPiece(out, module, moduleIndex, `Lateral izquierdo${suffix}`, h, d, 1, { material: tvExteriorMaterial, color: "Bardolino", edge: tvExteriorEdge });
-      addPiece(out, module, moduleIndex, `Lateral derecho${suffix}`, h, d, 1, { material: tvExteriorMaterial, color: "Bardolino", edge: tvExteriorEdge });
-      addPiece(out, module, moduleIndex, `Piso${suffix}`, w, d, 1, { material: tvExteriorMaterial, color: "Bardolino", edge: tvExteriorEdge });
-      addPiece(out, module, moduleIndex, `Techo${suffix}`, w, d, 1, { material: tvExteriorMaterial, color: "Bardolino", edge: tvExteriorEdge });
-      addPiece(out, module, moduleIndex, `División interna${suffix}`, Math.max(100, h - 40), d, 2, { material: tvInteriorMaterial, color: "Blanco Alto Brillo", edge: tvInteriorEdge });
+      addPiece(out, module, moduleIndex, `Lateral izquierdo${suffix}`, h, d, 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
+      addPiece(out, module, moduleIndex, `Lateral derecho${suffix}`, h, d, 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
+      addPiece(out, module, moduleIndex, `Piso${suffix}`, w, d, 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
+      addPiece(out, module, moduleIndex, `Techo${suffix}`, w, d, 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
+      addPiece(out, module, moduleIndex, `División interna${suffix}`, Math.max(100, h - 40), d, 2, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
       for (let drawer = 1; drawer <= drawerCount; drawer++) {
-        addPiece(out, module, moduleIndex, `Frente gaveta ${drawer}${suffix}`, drawerFrontWidth, drawerFrontHeight, 1, { material: tvExteriorMaterial, color: "Bardolino", edge: tvExteriorEdge });
+        addPiece(out, module, moduleIndex, `Frente gaveta ${drawer}${suffix}`, drawerFrontWidth, drawerFrontHeight, 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
       }
       addPiece(out, module, moduleIndex, `Fondo 6mm${suffix}`, Math.max(100, w - 20), Math.max(100, h - 20), 1, {
         material: fondoMaterial,
@@ -515,8 +578,8 @@ function generatePiecesForModule(module: ApprovedModule, moduleIndex: number): G
         materialKind: "fondo",
       });
 
-      addEdgeBanding(out, module, moduleIndex, `Canto PVC Bardolino módulo bajo${suffix}`, perimeterMeters(w, d, 2) + perimeterMeters(h, d, 2), { edge: tvExteriorEdge, color: "Bardolino" });
-      addEdgeBanding(out, module, moduleIndex, `Canto PVC Blanco divisiones internas${suffix}`, perimeterMeters(Math.max(100, h - 40), d, 2), { edge: tvInteriorEdge, color: "Blanco Alto Brillo" });
+      addEdgeBanding(out, module, moduleIndex, `Canto PVC ${tvExteriorColor} módulo bajo${suffix}`, perimeterMeters(w, d, 2) + perimeterMeters(h, d, 2), { edge: tvExteriorEdge, color: tvExteriorColor });
+      addEdgeBanding(out, module, moduleIndex, `Canto PVC ${tvExteriorColor} divisiones internas${suffix}`, perimeterMeters(Math.max(100, h - 40), d, 2), { edge: tvExteriorEdge, color: tvExteriorColor });
       addHardware(out, module, moduleIndex, `Correderas módulo bajo${suffix}`, drawerCount, 450, "Corredera Telescópica 45cm", "corredera");
       addHardware(out, module, moduleIndex, `Tornillos módulo bajo${suffix}`, 1, 150, "Tornillo 1 1/4", "tornillo");
       addHardware(out, module, moduleIndex, `Minifix módulo bajo${suffix}`, 1, 250, "Minifix", "herrajes");
@@ -528,26 +591,32 @@ function generatePiecesForModule(module: ApprovedModule, moduleIndex: number): G
       const railHeight = Math.min(180, Math.max(80, Math.round(h * 0.06)));
       const centerWidth = Math.max(100, w - sideWidth * 2);
       const centerHeight = Math.max(100, h - railHeight * 2);
+      const panelRole = getProductionModuleRole(module, ["panel", "frame", "primary"], "Blanco Alto Brillo");
+      const tvExteriorMaterial = panelRole.material;
+      const tvExteriorColor = panelRole.color;
+      const tvExteriorEdge = panelRole.edge;
 
-      addPiece(out, module, moduleIndex, `Panel central blanco TV${suffix}`, centerHeight, centerWidth, 1, { material: tvInteriorMaterial, color: "Blanco Alto Brillo", edge: tvInteriorEdge });
-      addPiece(out, module, moduleIndex, `Lateral decorativo izquierdo Bardolino${suffix}`, h, sideWidth, 1, { material: tvExteriorMaterial, color: "Bardolino", edge: tvExteriorEdge });
-      addPiece(out, module, moduleIndex, `Lateral decorativo derecho Bardolino${suffix}`, h, sideWidth, 1, { material: tvExteriorMaterial, color: "Bardolino", edge: tvExteriorEdge });
-      addPiece(out, module, moduleIndex, `Faja superior Bardolino${suffix}`, w, railHeight, 1, { material: tvExteriorMaterial, color: "Bardolino", edge: tvExteriorEdge });
-      addPiece(out, module, moduleIndex, `Faja inferior Bardolino${suffix}`, w, railHeight, 1, { material: tvExteriorMaterial, color: "Bardolino", edge: tvExteriorEdge });
-      addPiece(out, module, moduleIndex, `Listón refuerzo posterior${suffix}`, Math.max(100, w), 80, 2, { material: tvExteriorMaterial, color: "Bardolino", edge: tvExteriorEdge });
-      addEdgeBanding(out, module, moduleIndex, `Canto PVC Blanco panel central TV${suffix}`, perimeterMeters(centerHeight, centerWidth, 1), { edge: tvInteriorEdge, color: "Blanco Alto Brillo" });
-      addEdgeBanding(out, module, moduleIndex, `Canto PVC Bardolino marco TV${suffix}`, perimeterMeters(h, sideWidth, 2) + perimeterMeters(w, railHeight, 2), { edge: tvExteriorEdge, color: "Bardolino" });
+      addPiece(out, module, moduleIndex, `Panel central ${tvExteriorColor} TV${suffix}`, centerHeight, centerWidth, 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
+      addPiece(out, module, moduleIndex, `Lateral decorativo izquierdo ${tvExteriorColor}${suffix}`, h, sideWidth, 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
+      addPiece(out, module, moduleIndex, `Lateral decorativo derecho ${tvExteriorColor}${suffix}`, h, sideWidth, 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
+      addPiece(out, module, moduleIndex, `Faja superior ${tvExteriorColor}${suffix}`, w, railHeight, 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
+      addPiece(out, module, moduleIndex, `Faja inferior ${tvExteriorColor}${suffix}`, w, railHeight, 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
+      addPiece(out, module, moduleIndex, `Listón refuerzo posterior${suffix}`, Math.max(100, w), 80, 2, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
+      addEdgeBanding(out, module, moduleIndex, `Canto PVC ${tvExteriorColor} panel central TV${suffix}`, perimeterMeters(centerHeight, centerWidth, 1), { edge: tvExteriorEdge, color: tvExteriorColor });
+      addEdgeBanding(out, module, moduleIndex, `Canto PVC ${tvExteriorColor} marco TV${suffix}`, perimeterMeters(h, sideWidth, 2) + perimeterMeters(w, railHeight, 2), { edge: tvExteriorEdge, color: tvExteriorColor });
       addHardware(out, module, moduleIndex, `Soportes panel TV${suffix}`, 1, 650, "Soporte 182-14", "soporte");
       continue;
     }
 
     if (isShelf) {
-      addPiece(out, module, moduleIndex, `Lateral izquierdo biblioteca / repisa${suffix}`, h, d, 1, { material: tvInteriorMaterial, color: "Blanco Alto Brillo", edge: tvInteriorEdge });
-      addPiece(out, module, moduleIndex, `Lateral derecho biblioteca / repisa${suffix}`, h, d, 1, { material: tvInteriorMaterial, color: "Blanco Alto Brillo", edge: tvInteriorEdge });
-      addPiece(out, module, moduleIndex, `Tapa superior biblioteca / repisa${suffix}`, w, d, 1, { material: tvInteriorMaterial, color: "Blanco Alto Brillo", edge: tvInteriorEdge });
-      addPiece(out, module, moduleIndex, `Tapa inferior biblioteca / repisa${suffix}`, w, d, 1, { material: tvInteriorMaterial, color: "Blanco Alto Brillo", edge: tvInteriorEdge });
+      addPiece(out, module, moduleIndex, `Lateral izquierdo biblioteca / repisa${suffix}`, h, d, 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
+      addPiece(out, module, moduleIndex, `Lateral derecho biblioteca / repisa${suffix}`, h, d, 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
+      addPiece(out, module, moduleIndex, `Tapa superior biblioteca / repisa${suffix}`, w, d, 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
+      addPiece(out, module, moduleIndex, `Tapa inferior biblioteca / repisa${suffix}`, w, d, 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
+      addPiece(out, module, moduleIndex, `Fondo biblioteca / repisa${suffix}`, h, Math.max(100, w - 36), 1, { material: tvExteriorMaterial, color: tvExteriorColor, edge: tvExteriorEdge });
       addPiece(out, module, moduleIndex, `Entrepaños biblioteca / repisa${suffix}`, Math.max(100, w - 36), d, 3, { material: tvInteriorMaterial, color: "Blanco Alto Brillo", edge: tvInteriorEdge });
-      addEdgeBanding(out, module, moduleIndex, `Canto PVC Blanco biblioteca / repisa${suffix}`, perimeterMeters(w, d, 5), { edge: tvInteriorEdge, color: "Blanco Alto Brillo" });
+      addEdgeBanding(out, module, moduleIndex, `Canto PVC ${tvExteriorColor} estructura biblioteca / repisa${suffix}`, perimeterMeters(w, d, 2) + perimeterMeters(h, d, 2), { edge: tvExteriorEdge, color: tvExteriorColor });
+      addEdgeBanding(out, module, moduleIndex, `Canto PVC Blanco repisas internas${suffix}`, perimeterMeters(Math.max(100, w - 36), d, 3), { edge: tvInteriorEdge, color: "Blanco Alto Brillo" });
       addHardware(out, module, moduleIndex, `Soportes repisas${suffix}`, 1, 250, "Soporte de Repisa", "soporte");
       continue;
     }
@@ -611,6 +680,14 @@ function generatePiecesForModule(module: ApprovedModule, moduleIndex: number): G
   return out;
 }
 
+export function generateProductionPiecesForModules(
+  modules: ApprovedModule[],
+  context?: ProductionMaterialProjectContext | null
+): GeneratedPiece[] {
+  const enrichedModules = enrichProductionModulesMaterialRoles(modules || [], context) as ApprovedModule[];
+  return enrichedModules.flatMap((module, index) => generatePiecesForModule(module, index));
+}
+
 function fallbackModulesFromProject(project: ProjectLike): ApprovedModule[] {
   const type = firstText(project.project_type, project.type, "centro_tv").toLowerCase();
 
@@ -671,12 +748,16 @@ function getModulesFromLocalStorage(project: ProjectLike): ApprovedModule[] {
 
 function getApprovedModules(project: ProjectLike): ApprovedModule[] {
   const direct = project.approved_modules || project.modules || project.suggested_modules || [];
-  if (Array.isArray(direct) && direct.length > 0) return direct;
+  if (Array.isArray(direct) && direct.length > 0) {
+    return enrichProductionModulesMaterialRoles(direct, project) as ApprovedModule[];
+  }
 
   const fromLocal = getModulesFromLocalStorage(project);
-  if (fromLocal.length > 0) return fromLocal;
+  if (fromLocal.length > 0) {
+    return enrichProductionModulesMaterialRoles(fromLocal, project) as ApprovedModule[];
+  }
 
-  return fallbackModulesFromProject(project);
+  return enrichProductionModulesMaterialRoles(fallbackModulesFromProject(project), project) as ApprovedModule[];
 }
 
 function inventoryDisplayName(item: InventoryProduct) {
@@ -1517,7 +1598,7 @@ export async function createProductionFromProject(project: ProjectLike) {
     const saleTotal = projectTotal(project);
 
     const modules = getApprovedModules(project);
-    const generatedPieces = modules.flatMap((module, index) => generatePiecesForModule(module, index));
+    const generatedPieces = generateProductionPiecesForModules(modules, project);
     const linkedPieces = await linkPiecesToInventory(generatedPieces);
     const consolidated = consolidateMaterials(linkedPieces);
 

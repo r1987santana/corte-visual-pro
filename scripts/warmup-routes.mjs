@@ -27,7 +27,9 @@ const routes = [
   "/tv/gamificacion",
   "/rrhh",
   "/rrhh/auditoria",
+  "/rrhh/captacion",
   "/portal-empleado",
+  "/trabaja-con-nosotros",
   "/usuarios",
   "/configuracion",
 ];

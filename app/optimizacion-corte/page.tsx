@@ -29,6 +29,29 @@ import { supabase } from "@/lib/supabase";
 import { optimizeSheetsPRO, OptimizerPiece, SheetLayout } from "@/lib/corteOptimizerPRO";
 import { summarizeProjectCost, moneyDOP } from "@/lib/costEngine";
 import { getProductionRequisitionGate, type ProductionRequisitionGate } from "@/lib/productionRequisitionGate";
+import { buildLocalMaterialsDispatchedGate } from "@/lib/productionOrderStatus";
+import {
+  edgeMl,
+  edgeSummary,
+  edgeText,
+  generateDrillOperationsForPiece,
+  grainModeLabel,
+  materialCost,
+  materialHasGrain,
+  materialHeight,
+  materialName,
+  materialThickness,
+  materialWidth,
+  money,
+  num,
+  pieceCanRotateByGrain,
+  pieceCode,
+  qrStationText,
+  uid,
+  type DrillOperation,
+} from "@/lib/cutShared";
+import { isBoardCutMaterial } from "@/lib/cutMaterialMatching";
+import { productionItemToPiece } from "@/lib/cutProductionPieces";
 
 type MaterialSource = "TABLERO" | "RETAZO";
 
@@ -64,6 +87,10 @@ type ProductionPayload = {
   client_name?: string;
   items?: any[];
   created_at?: string;
+  status?: string | null;
+  estado?: string | null;
+  cutting_status?: string | null;
+  ready_for_cutting?: boolean | null;
 };
 
 
@@ -74,6 +101,7 @@ type ProductionOrderForCutting = {
   client_name?: string | null;
   project_name?: string | null;
   status?: string | null;
+  estado?: string | null;
   cutting_status?: string | null;
   ready_for_cutting?: boolean | null;
   sent_to_cutting_at?: string | null;
@@ -98,246 +126,6 @@ type PieceInput = {
   can_rotate: boolean;
 };
 
-type EdgeSummary = {
-  front: number;
-  back: number;
-  left: number;
-  right: number;
-  total: number;
-};
-
-const uid = () =>
-  typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2) + Date.now().toString(36);
-
-const num = (v: any, fallback = 0) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-};
-
-const money = (n: any) =>
-  new Intl.NumberFormat("es-DO", {
-    style: "currency",
-    currency: "DOP",
-  }).format(num(n));
-
-const pieceCode = (i: number) => `PZ-${String(i + 1).padStart(4, "0")}`;
-
-function safeText(value: any, fallback = "") {
-  return String(value ?? fallback).trim();
-}
-
-function edgeText(p: {
-  edge_front: boolean;
-  edge_back: boolean;
-  edge_left: boolean;
-  edge_right: boolean;
-}) {
-  const arr: string[] = [];
-  if (p.edge_front) arr.push("Frente");
-  if (p.edge_back) arr.push("Atrás");
-  if (p.edge_left) arr.push("Izq.");
-  if (p.edge_right) arr.push("Der.");
-  return arr.length ? arr.join(" / ") : "Sin canteo";
-}
-
-function qrStationText() {
-  return "CORTE → CANTEO → LIMPIEZA → ENSAMBLAJE → INSTALACIÓN";
-}
-
-
-function grainModeLabel(material?: CutMaterial | null, respect = true) {
-  if (!material) return "Sin material";
-  const has = materialHasGrain(material);
-  if (!respect) return "Veta ignorada";
-  return has ? "Veta bloqueada · No rotar" : "Sin veta · Rotación libre";
-}
-
-function pieceCanRotateByGrain(piece: PieceInput, material?: CutMaterial | null, respect = true) {
-  if (!respect) return piece.can_rotate !== false;
-  if (materialHasGrain(material)) return false;
-  return piece.can_rotate !== false;
-}
-
-
-type DrillOperation = {
-  id: string;
-  pieceId: string;
-  pieceCode: string;
-  pieceName: string;
-  moduleName: string;
-  type: "HINGE_35" | "MINIFIX_15" | "TARUGO_8" | "CORREDERA_5" | "SHELF_PIN_5";
-  x: number;
-  y: number;
-  diameter: number;
-  depth: number;
-  note: string;
-};
-
-function detectDrillingType(pieceName: string) {
-  const n = String(pieceName || "").toLowerCase();
-  return {
-    isDoor: n.includes("puerta") || n.includes("frente") || n.includes("gaveta"),
-    isSide: n.includes("lateral") || n.includes("costado"),
-    isShelf: n.includes("repisa") || n.includes("biblioteca"),
-    isDrawer: n.includes("gaveta") || n.includes("corredera"),
-  };
-}
-
-function generateDrillOperationsForPiece(piece: PieceInput, pieceIndex: number): DrillOperation[] {
-  const name = piece.piece_name || "Pieza";
-  const code = `PZ-${String(pieceIndex + 1).padStart(4, "0")}`;
-  const w = Number(piece.width_mm || 0);
-  const h = Number(piece.height_mm || 0);
-  const ops: DrillOperation[] = [];
-  const flags = detectDrillingType(name);
-
-  if (w <= 0 || h <= 0) return ops;
-
-  const base = {
-    pieceId: piece.id,
-    pieceCode: code,
-    pieceName: name,
-    moduleName: piece.module_name || "Sin módulo",
-  };
-
-  if (flags.isDoor && h >= 500) {
-    ops.push({ ...base, id: `${piece.id}-hinge-top`, type: "HINGE_35", x: 22, y: 100, diameter: 35, depth: 12, note: "Bisagra cazoleta superior 35mm" });
-    ops.push({ ...base, id: `${piece.id}-hinge-bottom`, type: "HINGE_35", x: 22, y: Math.max(100, h - 100), diameter: 35, depth: 12, note: "Bisagra cazoleta inferior 35mm" });
-    if (h >= 1500) ops.push({ ...base, id: `${piece.id}-hinge-middle`, type: "HINGE_35", x: 22, y: h / 2, diameter: 35, depth: 12, note: "Bisagra cazoleta central 35mm" });
-  }
-
-  if (flags.isSide || name.toLowerCase().includes("piso") || name.toLowerCase().includes("techo")) {
-    const xLeft = 37;
-    const xRight = Math.max(37, w - 37);
-    const yTop = 70;
-    const yBottom = Math.max(70, h - 70);
-
-    [
-      [xLeft, yTop, "Minifix superior izquierdo"],
-      [xRight, yTop, "Minifix superior derecho"],
-      [xLeft, yBottom, "Minifix inferior izquierdo"],
-      [xRight, yBottom, "Minifix inferior derecho"],
-    ].forEach(([x, y, note], i) => {
-      ops.push({ ...base, id: `${piece.id}-minifix-${i}`, type: "MINIFIX_15", x: Number(x), y: Number(y), diameter: 15, depth: 13, note: String(note) });
-    });
-  }
-
-  if (flags.isSide || flags.isShelf || name.toLowerCase().includes("piso") || name.toLowerCase().includes("techo")) {
-    const yPositions = [90, Math.max(90, h - 90)];
-    yPositions.forEach((yy, i) => {
-      ops.push({ ...base, id: `${piece.id}-tarugo-left-${i}`, type: "TARUGO_8", x: 50, y: yy, diameter: 8, depth: 12, note: "Tarugo unión" });
-      ops.push({ ...base, id: `${piece.id}-tarugo-right-${i}`, type: "TARUGO_8", x: Math.max(50, w - 50), y: yy, diameter: 8, depth: 12, note: "Tarugo unión" });
-    });
-  }
-
-  if (flags.isDrawer || flags.isSide) {
-    const railY = Math.min(Math.max(70, h / 2), h - 70);
-    [64, 96, 128, 160].forEach((xx, i) => {
-      if (xx < w - 30) {
-        ops.push({ ...base, id: `${piece.id}-slide-${i}`, type: "CORREDERA_5", x: xx, y: railY, diameter: 5, depth: 10, note: "Perforación corredera" });
-      }
-    });
-  }
-
-  if (flags.isShelf || flags.isSide) {
-    [120, Math.max(120, h - 120)].forEach((yy, i) => {
-      ops.push({ ...base, id: `${piece.id}-shelfpin-left-${i}`, type: "SHELF_PIN_5", x: 37, y: yy, diameter: 5, depth: 10, note: "Soporte repisa" });
-      ops.push({ ...base, id: `${piece.id}-shelfpin-right-${i}`, type: "SHELF_PIN_5", x: Math.max(37, w - 37), y: yy, diameter: 5, depth: 10, note: "Soporte repisa" });
-    });
-  }
-
-  return ops.filter((op) => op.x > 0 && op.y > 0 && op.x <= w && op.y <= h);
-}
-
-
-function edgeMl(p: {
-  width_mm: number;
-  height_mm: number;
-  edge_front: boolean;
-  edge_back: boolean;
-  edge_left: boolean;
-  edge_right: boolean;
-}) {
-
-  return (
-    ((p.edge_front ? p.width_mm : 0) +
-      (p.edge_back ? p.width_mm : 0) +
-      (p.edge_left ? p.height_mm : 0) +
-      (p.edge_right ? p.height_mm : 0)) /
-    1000
-  );
-}
-
-function edgeSummary(pieces: PieceInput[]): EdgeSummary {
-  let front = 0;
-  let back = 0;
-  let left = 0;
-  let right = 0;
-
-  pieces.forEach((p) => {
-    const q = Math.max(1, num(p.quantity, 1));
-    if (p.edge_front) front += (p.width_mm / 1000) * q;
-    if (p.edge_back) back += (p.width_mm / 1000) * q;
-    if (p.edge_left) left += (p.height_mm / 1000) * q;
-    if (p.edge_right) right += (p.height_mm / 1000) * q;
-  });
-
-  return {
-    front,
-    back,
-    left,
-    right,
-    total: front + back + left + right,
-  };
-}
-
-function materialName(m?: CutMaterial | null) {
-  if (!m) return "";
-  return m.material || m.name || m.code || "Material";
-}
-
-function materialWidth(m?: CutMaterial | null) {
-  if (!m) return 1220;
-  return num(m.sheet_width_mm) || num(m.width_mm) || num(m.ancho_mm) || 1220;
-}
-
-function materialHeight(m?: CutMaterial | null) {
-  if (!m) return 2440;
-  return (
-    num(m.sheet_height_mm) ||
-    num(m.height_mm) ||
-    num(m.largo_mm) ||
-    num(m.length_mm) ||
-    2440
-  );
-}
-
-function materialThickness(m?: CutMaterial | null) {
-  if (!m) return 18;
-  return num(m.grosor_mm) || 18;
-}
-
-function materialCost(m?: CutMaterial | null) {
-  if (!m) return 0;
-  return num(m.cost) || num(m.unit_cost) || num(m.purchase_cost) || num(m.price);
-}
-
-function materialHasGrain(m?: CutMaterial | null) {
-  if (!m) return false;
-  const name = `${m.material || ""} ${m.name || ""}`.toLowerCase();
-
-  return Boolean(
-    m.tiene_veta ||
-      m.grain_direction ||
-      name.includes("veta") ||
-      name.includes("roble") ||
-      name.includes("bardolino") ||
-      name.includes("caoba")
-  );
-}
-
 function isSheetUsableForPieces(material: CutMaterial, pieces: OptimizerPiece[], kerf: number) {
   const w = materialWidth(material);
   const h = materialHeight(material);
@@ -350,195 +138,12 @@ function isSheetUsableForPieces(material: CutMaterial, pieces: OptimizerPiece[],
     return fitsNormal || fitsRotated;
   });
 }
-
 function materialPriorityScore(material: CutMaterial) {
   const source = String(material.source || "").toUpperCase();
   if (source === "RETAZO") return 0;
   return 1;
 }
 
-
-function isPanelLike(item: any) {
-  const nameText = [
-    item.part_name,
-    item.piece_name,
-    item.product_name,
-    item.nombre_producto,
-    item.material_name,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  const fullText = [
-    item.part_name,
-    item.piece_name,
-    item.product_name,
-    item.nombre_producto,
-    item.material_name,
-    item.module_name,
-    item.category,
-    item.source,
-    item.unit,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  // IMPORTANTE:
-  // production_order_items guarda materiales consumidos como Melamina, MDF, PVC, tornillos, bisagras, etc.
-  // Esos NO son piezas para nesting. El corte solo debe recibir piezas reales del mueble.
-  const inventoryMaterialWords = [
-    "melamina",
-    "mdf",
-    "tablero",
-    "hoja",
-    "plywood",
-    "canto pvc",
-    "pvc",
-    "canto",
-    "bisagra",
-    "corredera",
-    "tornillo",
-    "minifix",
-    "perno",
-    "tarugo",
-    "soporte",
-    "colgador",
-    "tirador",
-    "pata",
-    "silicon",
-    "silicón",
-    "adhesivo",
-    "pegamento",
-    "riel",
-    "herrajes",
-    "herraje",
-  ];
-
-  const realPieceWords = [
-    "lateral",
-    "costado",
-    "piso",
-    "base",
-    "techo",
-    "tapa",
-    "puerta",
-    "frente",
-    "gaveta",
-    "cajon",
-    "cajón",
-    "fondo",
-    "trasera",
-    "espaldar",
-    "repisa",
-    "divisor",
-    "division",
-    "división",
-    "panel decorativo",
-    "panel superior",
-    "panel inferior",
-    "soporte repisa",
-  ];
-
-  const looksLikeInventoryMaterial = inventoryMaterialWords.some((word) =>
-    nameText.includes(word)
-  );
-
-  const looksLikeRealPiece = realPieceWords.some((word) =>
-    fullText.includes(word)
-  );
-
-  // Si claramente es un artículo de inventario y no una pieza específica, no entra a nesting.
-  if (looksLikeInventoryMaterial && !looksLikeRealPiece) return false;
-
-  // Si tiene medidas explícitas y nombre de pieza real, sí entra.
-  if (looksLikeRealPiece) return true;
-
-  // Si viene con dimensiones reales desde un motor futuro y no parece herraje, permitimos entrar.
-  const hasDimensions =
-    (num(item.width_mm) || num(item.width) || num(item.ancho_mm) || num(item.ancho)) > 0 &&
-    (num(item.height_mm) || num(item.length_mm) || num(item.largo_mm) || num(item.largo) || num(item.height)) > 0;
-
-  return hasDimensions && !looksLikeInventoryMaterial;
-}
-
-function parseSizeFromText(text: string) {
-  const clean = text.toLowerCase();
-  const match = clean.match(/(\d{2,4})\s*[x×]\s*(\d{2,4})/i);
-  if (!match) return null;
-
-  return {
-    width: Number(match[1]),
-    height: Number(match[2]),
-  };
-}
-
-function productionItemToPiece(item: any, index: number): PieceInput | null {
-  if (!isPanelLike(item)) return null;
-
-  const name =
-    item.part_name ||
-    item.product_name ||
-    item.nombre_producto ||
-    item.material_name ||
-    `Pieza ${index + 1}`;
-
-  const moduleName =
-    item.module_name ||
-    item.category ||
-    item.source ||
-    "Módulo general";
-
-  const sizeText = [name, item.notes, item.description, item.material_name]
-    .filter(Boolean)
-    .join(" ");
-
-  const parsed = parseSizeFromText(sizeText);
-
-  const width =
-    num(item.width_mm) ||
-    num(item.width) ||
-    num(item.ancho_mm) ||
-    num(item.ancho) ||
-    parsed?.width ||
-    0;
-
-  const height =
-    num(item.height_mm) ||
-    num(item.length_mm) ||
-    num(item.largo_mm) ||
-    num(item.largo) ||
-    num(item.height) ||
-    parsed?.height ||
-    0;
-
-  if (width <= 0 || height <= 0) {
-    return null;
-  }
-
-  const lower = String(name).toLowerCase();
-  const isBack = lower.includes("fondo");
-  const isDoor = lower.includes("puerta") || lower.includes("frente");
-  const isShelf = lower.includes("repisa");
-
-  return {
-    id: uid(),
-    original_id: item.id || item.production_order_item_id || "",
-    piece_name: name,
-    module_name: moduleName,
-    material_name: item.material_name || item.product_name || item.nombre_producto || "",
-    width_mm: width,
-    height_mm: height,
-    thickness_mm: num(item.thickness) || num(item.thickness_mm) || (isBack ? 6 : 18),
-    quantity: Math.max(1, num(item.quantity ?? item.cantidad, 1)),
-    edge_front: !isBack,
-    edge_back: isDoor,
-    edge_left: isDoor || isShelf,
-    edge_right: isDoor || isShelf,
-    can_rotate: true,
-  };
-}
 
 export default function CortePage() {
   const [fase32CncStatus, setFase32CncStatus] = useState("pendiente_cnc");
@@ -650,6 +255,7 @@ const drillingOperations = useMemo<DrillOperation[]>(() => {
     if (optimizerPieces.length === 0 || materials.length === 0) return [];
 
     return materials
+      .filter(isBoardCutMaterial)
       .map((material) => {
         const w = materialWidth(material);
         const h = materialHeight(material);
@@ -783,7 +389,7 @@ const drillingOperations = useMemo<DrillOperation[]>(() => {
     try {
       const { data, error } = await supabase
         .from("production_orders")
-        .select("id, order_code, code, client_name, project_name, status, cutting_status, ready_for_cutting, sent_to_cutting_at, created_at")
+        .select("id, order_code, code, client_name, project_name, status, estado, cutting_status, ready_for_cutting, sent_to_cutting_at, created_at")
         .in("status", ["enviado_a_corte", "completed", "completada", "liberado_para_produccion", "LIBERADO_PARA_PRODUCCION"])
         .order("created_at", { ascending: false })
         .limit(50);
@@ -801,7 +407,7 @@ const drillingOperations = useMemo<DrillOperation[]>(() => {
 
   async function loadProductionOrderIntoCutting(order: ProductionOrderForCutting) {
     try {
-      const gate = await refreshRequisitionGate(order.id);
+      const gate = await refreshRequisitionGate(order.id, order.order_code || order.code || "");
       const { data: orderFull, error: orderError } = await supabase
         .from("production_orders")
         .select("*")
@@ -825,6 +431,10 @@ const drillingOperations = useMemo<DrillOperation[]>(() => {
         project_name: orderFull?.project_name || order.project_name || "",
         notes: orderFull?.notes || "",
         created_at: orderFull?.created_at || new Date().toISOString(),
+        status: orderFull?.status || order.status || null,
+        estado: orderFull?.estado || order.estado || null,
+        cutting_status: orderFull?.cutting_status || order.cutting_status || null,
+        ready_for_cutting: orderFull?.ready_for_cutting ?? order.ready_for_cutting ?? null,
         items: (dbItems || []).map((row: any, index: number) => ({
           ...row,
           item_name:
@@ -941,7 +551,7 @@ const drillingOperations = useMemo<DrillOperation[]>(() => {
       setOrderCode(parsed.order_code || "");
 
       const productionOrderId = parsed.production_order_id;
-      const gate = await refreshRequisitionGate(productionOrderId || null);
+      const gate = await refreshRequisitionGate(productionOrderId || null, parsed.order_code || "");
 
       if (!productionOrderId) {
         setMessage("⚠️ La orden fue cargada, pero no trae production_order_id.");
@@ -1589,8 +1199,55 @@ const drillingOperations = useMemo<DrillOperation[]>(() => {
     );
   }
 
-  async function refreshRequisitionGate(productionOrderId?: string | null) {
-    const gate = await getProductionRequisitionGate(productionOrderId || getCurrentProductionOrderId());
+  function getCurrentOrderCodeForLookup() {
+    return String(
+      orderCode ||
+        payload?.order_code ||
+        (payload as any)?.code ||
+        (payload as any)?.order?.order_code ||
+        (payload as any)?.order?.code ||
+        ""
+    );
+  }
+
+  function findCurrentOrderSnapshot(productionOrderId?: string | null, orderCodeOverride?: string | null) {
+    const id = String(productionOrderId || getCurrentProductionOrderId() || "");
+    const code = String(orderCodeOverride || getCurrentOrderCodeForLookup() || "");
+
+    const row = productionOrdersForCutting.find((item) => {
+      const itemCode = String(item.order_code || item.code || "");
+      return (
+        (id && String(item.id) === id) ||
+        (code && itemCode === code) ||
+        (code && String(item.code || "") === code) ||
+        (code && String(item.order_code || "") === code)
+      );
+    });
+
+    return row || payload || null;
+  }
+
+  function localDispatchedGate(productionOrderId?: string | null, orderCodeOverride?: string | null): ProductionRequisitionGate | null {
+    const orderSnapshot = findCurrentOrderSnapshot(productionOrderId, orderCodeOverride);
+    return buildLocalMaterialsDispatchedGate({
+      orderSnapshot,
+      orderCodeOverride,
+      fallbackOrderCode: getCurrentOrderCodeForLookup(),
+      productionOrderId,
+    });
+  }
+
+  async function refreshRequisitionGate(productionOrderId?: string | null, orderCodeOverride?: string | null) {
+    const localGate = localDispatchedGate(productionOrderId, orderCodeOverride);
+    if (localGate) {
+      setRequisitionGate(localGate);
+      return localGate;
+    }
+
+    const gate = await getProductionRequisitionGate(
+      productionOrderId || getCurrentProductionOrderId(),
+      orderCodeOverride || getCurrentOrderCodeForLookup()
+    );
     setRequisitionGate(gate);
     return gate;
   }
@@ -1701,8 +1358,8 @@ const drillingOperations = useMemo<DrillOperation[]>(() => {
     }
 
     const ref = orderCode || `CORTE-${Date.now()}`;
-    const doc = new jsPDF("portrait", "mm", "a4");
-    const pageW = 210;
+    const doc = new jsPDF("portrait", "mm", "letter");
+    const pageW = doc.internal.pageSize.getWidth();
 
     const moneyPdf = (n: number) =>
       `RD$${Number(n || 0).toLocaleString("es-DO", {
@@ -2974,7 +2631,7 @@ const drillingOperations = useMemo<DrillOperation[]>(() => {
       return;
     }
 
-    const doc = new jsPDF("landscape", "mm", "a4");
+    const doc = new jsPDF("landscape", "mm", "letter");
     const ref = orderCode || `CORTE-${Date.now()}`;
     const sheetScaleMaxW = 130;
     const sheetScaleMaxH = 105;
@@ -4405,7 +4062,6 @@ const drillingOperations = useMemo<DrillOperation[]>(() => {
     </main>
   );
 }
-
 function SheetView({
   sheet,
   sheetWidth,
@@ -4563,279 +4219,3 @@ function SmallNumber({
     />
   );
 }
-
-
-/* ======================================================================
-   FASE 11 – HERRAJES AUTOMÁTICOS PRO
-   Helpers seguros para cálculo y CSV de herrajes
-   ====================================================================== */
-
-type HardwareRequirement = {
-  code: string;
-  name: string;
-  unit: string;
-  quantity: number;
-  notes?: string;
-};
-
-function calculateHardwareRequirements(modules: any[]): HardwareRequirement[] {
-  const totals = new Map<string, HardwareRequirement>();
-
-  const add = (
-    code: string,
-    name: string,
-    unit: string,
-    quantity: number,
-    notes?: string
-  ) => {
-    const q = Number(quantity || 0);
-    if (!q || q <= 0) return;
-
-    const current = totals.get(code);
-    if (current) {
-      current.quantity += q;
-      return;
-    }
-
-    totals.set(code, {
-      code,
-      name,
-      unit,
-      quantity: q,
-      notes,
-    });
-  };
-
-  (modules || []).forEach((m: any) => {
-    const type = String(m?.type || m?.module_type || m?.name || "").toLowerCase();
-    const width = Number(m?.width_mm || m?.width || 0);
-    const height = Number(m?.height_mm || m?.height || 0);
-    const drawers = Number(m?.drawer_count || m?.drawers || 0);
-    const doors = Number(m?.door_count || m?.doors || 0);
-    const shelves = Number(m?.shelf_count || m?.shelves || 0);
-
-    let doorQty = doors;
-
-    if (!doorQty && (type.includes("aereo") || type.includes("aéreo") || type.includes("closet") || type.includes("puerta"))) {
-      doorQty = width > 900 ? 2 : 1;
-    }
-
-    if (doorQty > 0) {
-      const referenceHeight = height || width;
-      const hingesPerDoor =
-        referenceHeight >= 2200 ? 5 :
-        referenceHeight >= 1600 ? 4 :
-        referenceHeight >= 900 ? 3 :
-        2;
-
-      add("HER-BIS-SUAVE", "Bisagra cierre suave", "unidad", doorQty * hingesPerDoor, "Bisagra por puerta");
-      add("PLA-BIS", "Placa para bisagra", "unidad", doorQty * hingesPerDoor, "Una placa por bisagra");
-      add("TOR-35X16", "Tornillo 3.5x16", "unidad", doorQty * hingesPerDoor * 8, "8 tornillos por bisagra+placa");
-    }
-
-    let drawerQty = drawers;
-
-    if (!drawerQty && (type.includes("gaveta") || type.includes("cajon") || type.includes("cajón"))) {
-      drawerQty = 1;
-    }
-
-    if (drawerQty > 0) {
-      add("COR-TEL", "Corredera telescópica / oculta", "juego", drawerQty, "Un juego por gaveta");
-      add("MIN-181-05", "Minifix 181-05", "unidad", drawerQty * 4, "Conectores por gaveta");
-      add("PER-181-13", "Perno Minifix 181-13", "unidad", drawerQty * 4, "Pernos por gaveta");
-      add("TAR-8", "Tarugo 8 mm", "unidad", drawerQty * 8, "Tarugos por gaveta");
-    }
-
-    let shelfQty = shelves;
-
-    if (!shelfQty && (type.includes("repisa") || type.includes("biblioteca"))) {
-      shelfQty = 1;
-    }
-
-    if (shelfQty > 0 || type.includes("closet")) {
-      add("SOP-REP-5", "Soporte de repisa 5 mm", "unidad", Math.max(1, shelfQty || 1) * 4, "4 soportes por repisa");
-    }
-
-    // Herraje base por módulo
-    add("MIN-181-05", "Minifix 181-05", "unidad", 8, "Base por módulo");
-    add("PER-181-13", "Perno Minifix 181-13", "unidad", 8, "Base por módulo");
-    add("TAR-8", "Tarugo 8 mm", "unidad", 16, "Base por módulo");
-    add("TOR-ENS", "Tornillo de ensamble", "unidad", 20, "Base por módulo");
-    add("TAP-182-01", "Tapón cubre minifix 182-01", "unidad", 8, "Base por módulo");
-  });
-
-  return Array.from(totals.values()).sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function exportHardwareRequirementsCsv(items: HardwareRequirement[]): string {
-  const headers = ["codigo", "descripcion", "unidad", "cantidad", "notas"];
-
-  const rows = (items || []).map((item) => [
-    item.code,
-    item.name,
-    item.unit,
-    item.quantity,
-    item.notes || "",
-  ]);
-
-  return [
-    headers.join(","),
-    ...rows.map((row) =>
-      row.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")
-    ),
-  ].join("\n");
-}
-
-
-/* ======================================================================
-   FASE 12 – COSTEO TOTAL AUTOMÁTICO PRO
-   Motor seguro para costeo integral de proyecto
-   ====================================================================== */
-
-type TotalCostInput = {
-  materialCost?: number;
-  edgeCost?: number;
-  hardwareCost?: number;
-  cncCost?: number;
-  wasteCost?: number;
-  productionLinearFeet?: number;
-  installationLinearFeet?: number;
-  productionMasterRate?: number;
-  productionAssistantRate?: number;
-  installationMasterRate?: number;
-  installationAssistantRate?: number;
-  transportCost?: number;
-  extraCost?: number;
-  profitPercent?: number;
-  itbisPercent?: number;
-};
-
-type TotalCostResult = {
-  materialCost: number;
-  edgeCost: number;
-  hardwareCost: number;
-  cncCost: number;
-  wasteCost: number;
-  productionLaborCost: number;
-  installationLaborCost: number;
-  transportCost: number;
-  extraCost: number;
-  subtotalCost: number;
-  profitAmount: number;
-  priceBeforeTax: number;
-  itbisAmount: number;
-  suggestedPrice: number;
-  marginPercent: number;
-};
-
-function calculateTotalProjectCost(input: TotalCostInput): TotalCostResult {
-  const materialCost = Number(input.materialCost || 0);
-  const edgeCost = Number(input.edgeCost || 0);
-  const hardwareCost = Number(input.hardwareCost || 0);
-  const cncCost = Number(input.cncCost || 0);
-  const wasteCost = Number(input.wasteCost || 0);
-  const transportCost = Number(input.transportCost || 0);
-  const extraCost = Number(input.extraCost || 0);
-
-  const productionLinearFeet = Number(input.productionLinearFeet || 0);
-  const installationLinearFeet = Number(input.installationLinearFeet || 0);
-
-  const productionMasterRate = Number(input.productionMasterRate ?? 200);
-  const productionAssistantRate = Number(input.productionAssistantRate ?? 100);
-  const installationMasterRate = Number(input.installationMasterRate ?? 200);
-  const installationAssistantRate = Number(input.installationAssistantRate ?? 100);
-
-  const productionLaborCost =
-    productionLinearFeet * (productionMasterRate + productionAssistantRate);
-
-  const installationLaborCost =
-    installationLinearFeet * (installationMasterRate + installationAssistantRate);
-
-  const subtotalCost =
-    materialCost +
-    edgeCost +
-    hardwareCost +
-    cncCost +
-    wasteCost +
-    productionLaborCost +
-    installationLaborCost +
-    transportCost +
-    extraCost;
-
-  const profitPercent = Number(input.profitPercent ?? 35);
-  const itbisPercent = Number(input.itbisPercent ?? 18);
-
-  const profitAmount = subtotalCost * (profitPercent / 100);
-  const priceBeforeTax = subtotalCost + profitAmount;
-  const itbisAmount = priceBeforeTax * (itbisPercent / 100);
-  const suggestedPrice = priceBeforeTax + itbisAmount;
-
-  const marginPercent =
-    suggestedPrice > 0 ? ((suggestedPrice - subtotalCost) / suggestedPrice) * 100 : 0;
-
-  return {
-    materialCost,
-    edgeCost,
-    hardwareCost,
-    cncCost,
-    wasteCost,
-    productionLaborCost,
-    installationLaborCost,
-    transportCost,
-    extraCost,
-    subtotalCost,
-    profitAmount,
-    priceBeforeTax,
-    itbisAmount,
-    suggestedPrice,
-    marginPercent,
-  };
-}
-
-function buildCostBreakdownRows(result: TotalCostResult) {
-  return [
-    { label: "Materiales / Melamina", amount: result.materialCost },
-    { label: "Canto PVC", amount: result.edgeCost },
-    { label: "Herrajes", amount: result.hardwareCost },
-    { label: "CNC / Corte", amount: result.cncCost },
-    { label: "Merma / Desperdicio", amount: result.wasteCost },
-    { label: "Mano de obra producción", amount: result.productionLaborCost },
-    { label: "Mano de obra instalación", amount: result.installationLaborCost },
-    { label: "Transporte", amount: result.transportCost },
-    { label: "Extras", amount: result.extraCost },
-    { label: "Subtotal costo", amount: result.subtotalCost, strong: true },
-    { label: "Utilidad", amount: result.profitAmount },
-    { label: "Precio antes ITBIS", amount: result.priceBeforeTax, strong: true },
-    { label: "ITBIS", amount: result.itbisAmount },
-    { label: "Precio sugerido", amount: result.suggestedPrice, strong: true },
-  ];
-}
-
-function exportTotalCostCsv(result: TotalCostResult): string {
-  const rows = buildCostBreakdownRows(result);
-  const headers = ["concepto", "monto"];
-
-  return [
-    headers.join(","),
-    ...rows.map((row) =>
-      [`"${row.label.replace(/"/g, '""')}"`, `"${Number(row.amount || 0).toFixed(2)}"`].join(",")
-    ),
-  ].join("\n");
-}
-
-/*
-FASE 12:
-- Costeo total automático
-- Materiales
-- Canto PVC
-- Herrajes
-- CNC
-- Merma
-- Mano de obra producción
-- Instalación
-- Transporte
-- Extras
-- Utilidad
-- ITBIS
-- Precio sugerido
-*/
