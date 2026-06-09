@@ -20,6 +20,7 @@ import {
   LayoutDashboard,
   Loader2,
   LogOut,
+  Menu,
   MapPinned,
   PackageCheck,
   PackageSearch,
@@ -522,6 +523,7 @@ export default function SaaSLayoutShell({ children }: { children: React.ReactNod
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [systemAlerts, setSystemAlerts] = useState<AINotification[]>([]);
   const publicClientRoute = isPublicClientRoute(pathname);
@@ -623,6 +625,7 @@ export default function SaaSLayoutShell({ children }: { children: React.ReactNod
 
   useEffect(() => {
     setAlertsOpen(false);
+    setMobileSidebarOpen(false);
   }, [pathname]);
 
   const handleLogout = async () => {
@@ -688,6 +691,7 @@ export default function SaaSLayoutShell({ children }: { children: React.ReactNod
     () => systemAlerts.filter((alert) => !alert.read).length,
     [systemAlerts]
   );
+  const sidebarExpanded = sidebarOpen || mobileSidebarOpen;
 
   if (layoutlessRoute) {
     return <>{children}</>;
@@ -715,10 +719,20 @@ export default function SaaSLayoutShell({ children }: { children: React.ReactNod
 
   return (
     <div className="rd-industrial-shell min-h-screen text-white">
+      {mobileSidebarOpen ? (
+        <button
+          type="button"
+          aria-label="Cerrar menu"
+          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      ) : null}
+
       <aside
         className={cx(
-          "rd-industrial-sidebar fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-cyan-400/10 transition-all duration-300",
-          sidebarOpen ? "w-[304px]" : "w-[92px]"
+          "rd-industrial-sidebar fixed left-0 top-0 z-40 flex h-screen w-[min(304px,calc(100vw-32px))] flex-col border-r border-cyan-400/10 transition-all duration-300 lg:translate-x-0",
+          mobileSidebarOpen ? "translate-x-0" : "-translate-x-full",
+          sidebarOpen ? "lg:w-[304px]" : "lg:w-[92px]"
         )}
       >
         <div className="border-b border-slate-800/80 px-4 py-5">
@@ -736,7 +750,7 @@ export default function SaaSLayoutShell({ children }: { children: React.ReactNod
                 </div>
               )}
 
-              {sidebarOpen ? (
+              {sidebarExpanded ? (
                 <div className="min-w-0">
                   <p className="truncate text-[11px] font-black uppercase tracking-[0.28em] text-cyan-300">
                     {settings.brand_name}
@@ -748,7 +762,7 @@ export default function SaaSLayoutShell({ children }: { children: React.ReactNod
               ) : null}
             </Link>
 
-            {sidebarOpen ? (
+            {sidebarExpanded ? (
               <button
                 type="button"
                 onClick={() => setSidebarOpen(false)}
@@ -760,7 +774,7 @@ export default function SaaSLayoutShell({ children }: { children: React.ReactNod
             ) : null}
           </div>
 
-          {sidebarOpen ? (
+          {sidebarExpanded ? (
             <div className="mt-5 rounded-2xl border border-slate-800 bg-[#07111f] px-4 py-3">
               <p className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-500">
                 Módulo activo
@@ -785,7 +799,7 @@ export default function SaaSLayoutShell({ children }: { children: React.ReactNod
           <div className="space-y-5">
             {visibleGroups.map((group) => (
               <div key={group.title}>
-                {sidebarOpen ? (
+                {sidebarExpanded ? (
                   <p className="mb-2 px-3 text-[10px] font-black uppercase tracking-[0.28em] text-slate-600">
                     {group.title}
                   </p>
@@ -797,7 +811,7 @@ export default function SaaSLayoutShell({ children }: { children: React.ReactNod
                       key={item.label}
                       item={item}
                       pathname={pathname}
-                      collapsed={!sidebarOpen}
+                      collapsed={!sidebarExpanded}
                     />
                   ))}
                 </div>
@@ -813,7 +827,7 @@ export default function SaaSLayoutShell({ children }: { children: React.ReactNod
                 CEO
               </div>
 
-              {sidebarOpen ? (
+              {sidebarExpanded ? (
                 <div className="min-w-0">
                   <p className="truncate text-sm font-black">
                     {user?.full_name || "Usuario"}
@@ -831,15 +845,15 @@ export default function SaaSLayoutShell({ children }: { children: React.ReactNod
             onClick={handleLogout}
             className={cx(
               "mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-100 transition hover:bg-red-500/20",
-              !sidebarOpen && "px-2"
+              !sidebarExpanded && "px-2"
             )}
             title="Cerrar sesión"
           >
             <LogOut size={18} />
-            {sidebarOpen ? "Cerrar sesión" : null}
+            {sidebarExpanded ? "Cerrar sesión" : null}
           </button>
 
-          {sidebarOpen ? (
+          {sidebarExpanded ? (
             <p className="mt-3 text-center text-[11px] text-slate-500">
               Auto bloqueo: 5 minutos
             </p>
@@ -850,16 +864,27 @@ export default function SaaSLayoutShell({ children }: { children: React.ReactNod
       <section
         className={cx(
           "rd-industrial-main min-h-screen transition-all duration-300",
-          sidebarOpen ? "pl-[304px]" : "pl-[92px]"
+          sidebarOpen ? "lg:pl-[304px]" : "lg:pl-[92px]"
         )}
       >
-        <header className="rd-industrial-topbar sticky top-0 z-30 border-b border-cyan-400/10 px-5 py-4">
+        <header className="rd-industrial-topbar sticky top-0 z-30 border-b border-cyan-400/10 px-4 py-4 lg:px-5">
           <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">
-                {settings.company_name}
-              </p>
-              <h2 className="text-xl font-black">{activeTitle}</h2>
+            <div className="flex min-w-0 items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setMobileSidebarOpen(true)}
+                className="rounded-2xl border border-cyan-400/20 bg-slate-950/80 p-3 text-slate-300 transition hover:text-cyan-200 lg:hidden"
+                title="Abrir menu"
+              >
+                <Menu size={18} />
+              </button>
+
+              <div className="min-w-0">
+                <p className="truncate text-xs font-black uppercase tracking-[0.22em] text-cyan-300">
+                  {settings.company_name}
+                </p>
+                <h2 className="truncate text-xl font-black">{activeTitle}</h2>
+              </div>
             </div>
 
             <div className="flex items-center gap-3">
@@ -1004,7 +1029,7 @@ export default function SaaSLayoutShell({ children }: { children: React.ReactNod
 
               <Link
                 href="/usuarios"
-                className="rd-premium-button rounded-2xl px-4 py-3 text-sm font-black text-cyan-100"
+                className="rd-premium-button hidden rounded-2xl px-4 py-3 text-sm font-black text-cyan-100 sm:inline-flex"
               >
                 {user?.role_label || "Usuario"}
               </Link>
