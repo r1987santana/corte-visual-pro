@@ -405,6 +405,7 @@ Design must be manufacturable with real 18mm melamine panels, CNC-ready modules,
     const html = `
       <html><head><title>${selected.request_code}</title>
       <style>
+      @page{size:letter landscape;margin:10mm}
       body{font-family:Arial;margin:28px;color:#111}.brand{letter-spacing:8px;color:#005c99;font-weight:900}
       h1{margin:6px 0}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.box{border:1px solid #111;border-radius:12px;padding:12px;margin:10px 0}
       table{width:100%;border-collapse:collapse;margin-top:12px}th{background:#07111f;color:white;text-align:left;padding:8px}td{border:1px solid #ddd;padding:7px}

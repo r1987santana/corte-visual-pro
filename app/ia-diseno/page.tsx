@@ -3,6 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { apiFetch } from "@/lib/saas/auth-client";
+import {
+  clientPhoneFromQuote,
+  openClientPortalWhatsApp,
+  whatsappLinkForClient,
+} from "@/lib/clientPortalWhatsApp";
+import {
+  enrichModuleMaterialRoles,
+  type DesignMaterialRoles,
+} from "@/lib/designMaterialRoles";
+import { buildIADesignPrompt } from "@/lib/iaDesignPrompt";
 
 type AnyRow = Record<string, any>;
 
@@ -56,6 +66,7 @@ type DesignModule = {
   color: string;
   edge: string;
   notes: string;
+  material_roles?: DesignMaterialRoles;
 };
 
 type RenderVariant = {
@@ -317,7 +328,7 @@ function buildModules(q: QuoteRow): DesignModule[] {
       color: item.color || item.color_preference || q.color_palette || "blanco / madera / negro",
       edge: item.edge || item.edge_band || item.canteo || "PVC 1mm visible",
       notes: item.notes || item.notas || "Módulo sugerido desde levantamiento.",
-    }));
+    })).map((module: DesignModule) => enrichModuleMaterialRoles(module, q));
   }
 
   const projectType = String(q.project_type || "").toLowerCase();
@@ -363,7 +374,7 @@ function buildModules(q: QuoteRow): DesignModule[] {
         edge: "PVC 1mm visible",
         notes: "Repisas decorativas laterales o superiores.",
       },
-    ];
+    ].map((module) => enrichModuleMaterialRoles(module, q));
   }
 
   if (projectType.includes("closet")) {
@@ -472,44 +483,7 @@ function buildModules(q: QuoteRow): DesignModule[] {
 }
 
 function buildPrompt(q: any, modules: DesignModule[], variant: RenderVariant) {
-  const moduleLines = modules
-    .map(
-      (m, i) =>
-        `${i + 1}. ${m.name}: quantity ${m.quantity}. Each unit: ${m.width_mm}mm width x ${m.depth_mm}mm depth x ${m.height_mm}mm height. Type: ${m.type}. Material: ${m.material}. Color/finish: ${m.color}. Edge banding: ${m.edge}. Notes: ${m.notes}.`
-    )
-    .join("\n");
-
-  return [
-    "Create a professional realistic interior render for RD WOOD SYSTEM.",
-    `Variant: ${variant.id} - ${variant.name}.`,
-    `Concept: ${variant.concept}.`,
-    `Mood: ${variant.mood}.`,
-    `Project type: ${q.project_type}.`,
-    `Project name: ${q.project_name}.`,
-    `Client: ${q.client_name}.`,
-    `Real dimensions: ${q.width_mm}mm width x ${q.depth_mm}mm depth x ${q.height_mm}mm height.`,
-    `Style: ${q.style}.`,
-    `Material required: ${q.material_preference || "Melamina 18mm"}.`,
-    `Mandatory color palette: ${q.color_palette || "blanco / madera / negro"}.`,
-    `Hardware required: ${q.hardware_preference || "herrajes premium"}.`,
-    `Budget reference: ${money(Number(q.presupuesto || 0))}.`,
-    `Customer requests: ${q.customer_requests || "No additional requests."}`,
-    `Technical notes: ${q.technical_notes || "No technical notes."}`,
-    "",
-    "Manufacturable modules required in the design:",
-    moduleLines,
-    "",
-    "Rules:",
-    "- Use ALL specified materials, colors and hardware.",
-    "- Respect exact real dimensions.",
-    "- Design must be fully manufacturable.",
-    "- Use premium commercial render quality.",
-    "- Include LED lighting if requested.",
-    "- This stage is ONLY for client visual approval.",
-    "- The image must be ONLY the furniture/interior render.",
-    "- Do NOT include text, labels, titles, tables, captions, diagrams, watermarks, measurement callouts, UI panels, or written notes inside the image.",
-    "- Do NOT create a technical sheet. No typography should appear in the generated image."
-  ].join("\n");
+  return buildIADesignPrompt(q, modules, variant);
 }
 
 function escapeHtml(value: any) {
@@ -740,6 +714,7 @@ export default function IADisenoPage() {
         item.id === id
           ? {
               ...item,
+              material_roles: ["name", "type", "color", "material", "notes"].includes(String(key)) ? undefined : item.material_roles,
               [key]:
                 key === "width_mm" ||
                 key === "depth_mm" ||
@@ -827,7 +802,8 @@ export default function IADisenoPage() {
     }
 
     setSavingProposal(true);
-    const finalPrompt = buildPrompt(selectedQuote, modules, selectedVariant);
+    const approvedModules = modules.map((module) => enrichModuleMaterialRoles(module, selectedQuote));
+    const finalPrompt = buildPrompt(selectedQuote, approvedModules, selectedVariant);
     const measurementId = selectedQuote.measurement_id || null;
     const quoteId = selectedQuote.quote_id || null;
 
@@ -841,7 +817,7 @@ export default function IADisenoPage() {
         ai_design_request_id: requestId,
         portal_token: requestId,
         portal_url: nextPortalUrl,
-        modules,
+        modules: approvedModules,
         variants: generated.map((item) => ({
           id: item.variant.id,
           name: item.variant.name,
@@ -860,7 +836,7 @@ export default function IADisenoPage() {
         .update({
           ai_status: "pendiente_decision_cliente",
           status: "pendiente_decision_cliente",
-          suggested_modules: modules,
+          suggested_modules: approvedModules,
           ai_prompt: finalPrompt,
           client_portal_token: requestId,
           client_portal_url: nextPortalUrl,
@@ -900,7 +876,20 @@ export default function IADisenoPage() {
       setSelectedQuote(nextQuote);
       setQuotes((current) => current.map((item) => (item.id === selectedQuote.id ? nextQuote : item)));
       setPortalUrl(nextPortalUrl);
-      setMessage(`Propuesta guardada para decision del cliente. Variantes listas: ${generated.length}. Link cliente: ${nextPortalUrl}`);
+      const shouldOpenWhatsApp = generated.length >= VARIANTS.length;
+      const whatsappOpened = shouldOpenWhatsApp
+        ? openClientPortalWhatsApp(nextQuote, nextPortalUrl, generated.length)
+        : false;
+      const clientPhone = clientPhoneFromQuote(nextQuote);
+      if (shouldOpenWhatsApp && whatsappOpened) {
+        setMessage(`Propuesta guardada. WhatsApp abierto para ${clientPhone}. Variantes listas: ${generated.length}. Link cliente: ${nextPortalUrl}`);
+      } else if (shouldOpenWhatsApp && !clientPhone) {
+        setMessage(`Propuesta guardada, pero el cliente no tiene telefono/WhatsApp cargado. Variantes listas: ${generated.length}. Link cliente: ${nextPortalUrl}`);
+      } else if (shouldOpenWhatsApp) {
+        setMessage(`Propuesta guardada. El navegador bloqueo la ventana de WhatsApp; usa el boton WhatsApp cliente. Link cliente: ${nextPortalUrl}`);
+      } else {
+        setMessage(`Propuesta guardada para decision del cliente. Variantes listas: ${generated.length}. Link cliente: ${nextPortalUrl}`);
+      }
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (error: any) {
       setMessage(`Error guardando propuesta: ${error?.message || "Error desconocido"}`);
@@ -962,7 +951,7 @@ export default function IADisenoPage() {
           <meta charset="utf-8" />
           <title>RD WOOD SYSTEM - Propuesta IA</title>
           <style>
-            @page { size: landscape; margin: 8mm; }
+            @page { size: letter landscape; margin: 8mm; }
             body { margin: 0; padding: 10px; font-family: Arial, sans-serif; color: #111827; background: #f8fafc; }
             .page { max-width: 980px; margin: 0 auto; }
             .header { border: 1px solid #0f172a; background: white; padding: 10px 14px; margin-bottom: 8px; break-after: avoid; page-break-after: avoid; }
@@ -1086,7 +1075,7 @@ export default function IADisenoPage() {
       customer_requests: selectedQuote.customer_requests || null,
       technical_notes: selectedQuote.technical_notes || selectedQuote.notes || null,
       photos: selectedQuote.photos || [],
-      suggested_modules: modules,
+      suggested_modules: modules.map((module) => enrichModuleMaterialRoles(module, selectedQuote)),
       ai_prompt: promptText,
       source: "field_measurements",
       status: "pendiente_render",
@@ -1120,6 +1109,7 @@ export default function IADisenoPage() {
   async function saveRenderUrlToDatabase(variant: RenderVariant, imageUrl: string, promptText: string) {
     if (!selectedQuote?.id) return;
 
+    const moduleSnapshot = modules.map((module) => enrichModuleMaterialRoles(module, selectedQuote));
     const requestId = await ensureAIDesignRequest(promptText);
     const quoteId = (selectedQuote as any).quote_id || null;
     const measurementId = (selectedQuote as any).measurement_id || null;
@@ -1148,6 +1138,7 @@ export default function IADisenoPage() {
         ai_status: "render_generado",
         status: "render_generado",
         render_image_url: imageUrl,
+        suggested_modules: moduleSnapshot,
         updated_at: new Date().toISOString(),
       } as any)
       .eq("id", requestId);
@@ -1374,7 +1365,7 @@ export default function IADisenoPage() {
           <head>
             <title>RD WOOD SYSTEM - Render ${escapeHtml(variant.id)}</title>
             <style>
-              @page { size: landscape; margin: 8mm; }
+              @page { size: letter landscape; margin: 8mm; }
               * { box-sizing: border-box; }
               body { margin: 0; padding: 0; font-family: Arial, sans-serif; background: #fff; color: #111; }
               .sheet { min-height: 100vh; display: flex; flex-direction: column; gap: 10px; padding: 12px; }
@@ -1463,7 +1454,7 @@ export default function IADisenoPage() {
         <head>
           <title>RD WOOD SYSTEM - Diagrama ${escapeHtml(variant.id)}</title>
           <style>
-            @page { size: landscape; margin: 10mm; }
+            @page { size: letter landscape; margin: 10mm; }
             * { box-sizing: border-box; }
             body { margin: 0; padding: 18px; font-family: Arial, sans-serif; background: #fff; color: #111; }
             .sheet { width: 100%; min-height: calc(100vh - 36px); border: 2px solid #111; padding: 18px; }
@@ -1538,6 +1529,7 @@ export default function IADisenoPage() {
         <head>
           <title>RD WOOD SYSTEM - Render ${variant.id}</title>
           <style>
+            @page { size: letter landscape; margin: 10mm; }
             body { margin: 0; padding: 30px; font-family: Arial, sans-serif; background: #fff; color: #111; }
             h1 { margin: 0; font-size: 24px; }
             h2 { margin: 8px 0 18px; font-size: 18px; color: #0369a1; }
@@ -1583,14 +1575,15 @@ export default function IADisenoPage() {
       return;
     }
 
-    const finalPrompt = buildPrompt(selectedQuote, modules, variant);
+    const approvedModules = modules.map((module) => enrichModuleMaterialRoles(module, selectedQuote));
+    const finalPrompt = buildPrompt(selectedQuote, approvedModules, variant);
     const measurementId = selectedQuote.measurement_id || null;
 
     const approvedPayload: any = {
       quote: selectedQuote,
       quote_id: selectedQuote.quote_id || null,
       measurement_id: measurementId,
-      modules,
+      modules: approvedModules,
       approved_variant: variant,
       approved_variant_id: variant.id,
       approved_variant_name: variant.name,
@@ -1666,6 +1659,7 @@ export default function IADisenoPage() {
           render_approved_at: new Date().toISOString(),
           approved_render_url: imageUrl,
           render_image_url: imageUrl,
+          suggested_modules: approvedModules,
           updated_at: new Date().toISOString(),
         } as any)
         .eq("id", requestId);
@@ -1732,6 +1726,9 @@ export default function IADisenoPage() {
     return modules.reduce((sum, item) => sum + n(item.quantity, 1), 0);
   }, [modules]);
 
+  const generatedForPortalCount = generatedVariantItems().length || VARIANTS.length;
+  const portalWhatsAppUrl = whatsappLinkForClient(selectedQuote, portalUrl, generatedForPortalCount);
+
   if (!mounted) return null;
 
   return (
@@ -1774,7 +1771,35 @@ export default function IADisenoPage() {
 
         {message ? (
           <section className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4 font-bold text-emerald-200">
-            {message}
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <p className="min-w-0 break-words">{message}</p>
+              {portalUrl ? (
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  {portalWhatsAppUrl ? (
+                    <a
+                      href={portalWhatsAppUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-2xl bg-emerald-400 px-4 py-2 text-sm font-black text-slate-950 hover:bg-emerald-300"
+                    >
+                      Enviar WhatsApp
+                    </a>
+                  ) : (
+                    <span className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-2 text-sm font-black text-amber-100">
+                      Sin WhatsApp
+                    </span>
+                  )}
+                  <a
+                    href={portalUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-2xl border border-cyan-400/40 px-4 py-2 text-sm font-black text-cyan-100 hover:bg-cyan-400/10"
+                  >
+                    Abrir portal
+                  </a>
+                </div>
+              ) : null}
+            </div>
           </section>
         ) : null}
 
@@ -2019,6 +2044,22 @@ export default function IADisenoPage() {
                       <a href={portalUrl} target="_blank" className="mt-2 block break-all text-sm font-black text-cyan-200 underline">
                         {portalUrl}
                       </a>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {portalWhatsAppUrl ? (
+                          <a
+                            href={portalWhatsAppUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-2xl bg-emerald-400 px-4 py-2 text-xs font-black text-slate-950 hover:bg-emerald-300"
+                          >
+                            WhatsApp cliente
+                          </a>
+                        ) : (
+                          <span className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-2 text-xs font-black text-amber-100">
+                            Cliente sin WhatsApp
+                          </span>
+                        )}
+                      </div>
                       <p className="mt-2 text-xs font-semibold text-slate-400">
                         Este link se puede enviar por WhatsApp. El cliente aprueba una variante desde su portal y el flujo pasa a Cotizacion.
                       </p>
