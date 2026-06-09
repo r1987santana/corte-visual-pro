@@ -1,0 +1,25 @@
+# Local installs and generated build output
+node_modules/
+.next/
+out/
+build/
+coverage/
+
+# Local-only deployment/helpers/caches
+.tmp*/
+.tmp-*/
+.tmp.*
+.npm-cache*/
+backups/
+
+# Secrets and local machine state
+.env*
+*.pem
+
+# Large archives / generated transfer files
+*.zip
+*.rar
+*.7z
+*.tar
+*.tgz
+*.tsbuildinfo

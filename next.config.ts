@@ -35,6 +35,17 @@ const noStoreApiHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  webpack(config) {
+    config.ignoreWarnings = [
+      ...(config.ignoreWarnings || []),
+      {
+        module: /@vladmandic[\\/]face-api/,
+        message: /Critical dependency: require function is used/,
+      },
+    ];
+
+    return config;
+  },
   async headers() {
     return [
       {

@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireApiSession } from "@/lib/security/api-guard";
+import { createProtectedApiHandler } from "@/lib/security/api-route";
 
-export async function GET(request: Request) {
-  try {
-    const session = await requireApiSession(request, "inventario");
-    if (!session.ok) return session.response;
-    const supabase = session.supabase;
-
+export const GET = createProtectedApiHandler("inventario", async (_request, { supabase }) => {
     const { data, error } = await supabase
       .from("inventory")
       .select("*")
@@ -17,10 +12,4 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({ ok: true, items: data || [] });
-  } catch (error: any) {
-    return NextResponse.json(
-      { ok: false, error: error.message || "Error desconocido" },
-      { status: 500 }
-    );
-  }
-}
+});

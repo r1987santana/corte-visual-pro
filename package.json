@@ -4,9 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "tsc --noEmit",
+    "audit:api-security": "node scripts/api-security-audit.mjs",
+    "fix:mojibake-critical": "node scripts/fix-mojibake-critical.mjs --write",
+    "test:materials": "node --no-warnings scripts/centro-tv-material-regression.mjs",
     "pilot:check": "node scripts/pilot-check.mjs",
     "warmup": "node scripts/warmup-routes.mjs"
   },

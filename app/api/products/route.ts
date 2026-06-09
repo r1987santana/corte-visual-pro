@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireApiSession } from "@/lib/security/api-guard";
+import { createProtectedApiHandler } from "@/lib/security/api-route";
 
-export async function GET(request: Request) {
-  try {
-    const session = await requireApiSession(request, ["inventario", "ventas", "cotizador"]);
-    if (!session.ok) return session.response;
-    const supabase = session.supabase;
-
+export const GET = createProtectedApiHandler(["inventario", "ventas", "cotizador"], async (_request, { supabase }) => {
     const { data, error } = await supabase
       .from("products")
       .select("*")
@@ -20,10 +15,4 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json(data || []);
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message || "Error loading products" },
-      { status: 500 }
-    );
-  }
-}
+});

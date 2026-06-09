@@ -23,7 +23,9 @@ export default function LoginPage() {
     }
   }, []);
 
-  async function handleLogin() {
+  async function handleLogin(event?: React.FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+
     if (!email.trim()) {
       setMessage("Escribe el correo.");
       return;
@@ -38,7 +40,7 @@ export default function LoginPage() {
       setLoading(true);
       setMessage("");
 
-      const user = await loginWithEmailAndPin(email, pin);
+      const user = await loginWithEmailAndPin(email.trim(), pin.trim());
 
       if (user.must_change_pin) {
         router.push("/perfil/seguridad");
@@ -56,14 +58,14 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen bg-[#020817] p-6 text-white">
-      <section className="mx-auto grid min-h-screen max-w-7xl grid-cols-1 items-center gap-8 lg:grid-cols-2">
-        <div className="rounded-3xl border border-cyan-900/50 bg-gradient-to-br from-[#081421] via-[#0b1830] to-[#111b3f] p-8 shadow-2xl shadow-black/40">
-          <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-cyan-400/35 bg-cyan-400/10 px-4 py-2 text-xs font-black uppercase tracking-[0.28em] text-cyan-300">
+      <section className="mx-auto grid min-h-screen max-w-7xl grid-cols-1 items-center gap-8 py-10 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="rd-hero-glass rounded-lg p-8 shadow-2xl shadow-black/40 lg:p-10">
+          <div className="mb-8 inline-flex items-center gap-2 rounded-md border border-cyan-400/35 bg-cyan-400/10 px-4 py-2 text-xs font-black uppercase text-cyan-300">
             <ShieldCheck size={14} />
             Seguridad Empresarial PRO
           </div>
 
-          <h1 className="text-5xl font-black leading-tight">
+          <h1 className="rd-text-glow text-5xl font-black leading-tight">
             RD Wood System
           </h1>
           <p className="mt-4 max-w-xl text-slate-300">
@@ -77,56 +79,63 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <div className="mx-auto w-full max-w-md rounded-3xl border border-cyan-900/45 bg-[#07111f] p-8 shadow-2xl shadow-black/40">
+        <form
+          onSubmit={handleLogin}
+          className="mx-auto w-full max-w-md rounded-lg border border-cyan-900/45 bg-[#07111f] p-8 shadow-2xl shadow-black/40"
+        >
           <div className="mb-8 text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400 to-blue-700 text-4xl font-black">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-400 to-blue-700 text-4xl font-black">
               R
             </div>
             <h2 className="text-3xl font-black">Acceso Seguro</h2>
             <p className="mt-2 text-sm text-slate-400">Bloqueo automático por inactividad</p>
           </div>
 
-          <label className="mb-2 block text-xs font-black uppercase tracking-[0.22em] text-slate-400">
+          <label htmlFor="email" className="mb-2 block text-xs font-black uppercase text-slate-400">
             Correo electrónico
           </label>
           <input
+            id="email"
             type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-            className="mb-4 h-14 w-full rounded-2xl border border-slate-700 bg-white px-4 text-slate-900 outline-none focus:border-cyan-400"
+            onChange={(event) => setEmail(event.target.value)}
+            autoComplete="email"
+            className="mb-4 h-14 w-full rounded-lg border border-slate-700 bg-white px-4 text-slate-900 outline-none focus:border-cyan-400"
           />
 
-          <label className="mb-2 block text-xs font-black uppercase tracking-[0.22em] text-slate-400">
+          <label htmlFor="pin" className="mb-2 block text-xs font-black uppercase text-slate-400">
             PIN
           </label>
           <div className="relative">
             <input
+              id="pin"
               type={showPin ? "text" : "password"}
               value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-              className="h-14 w-full rounded-2xl border border-slate-700 bg-white px-4 pr-14 text-slate-900 outline-none focus:border-cyan-400"
+              onChange={(event) => setPin(event.target.value)}
+              autoComplete="current-password"
+              inputMode="numeric"
+              className="h-14 w-full rounded-lg border border-slate-700 bg-white px-4 pr-14 text-slate-900 outline-none focus:border-cyan-400"
             />
             <button
               type="button"
-              onClick={() => setShowPin((v) => !v)}
+              onClick={() => setShowPin((value) => !value)}
               className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-600"
+              title={showPin ? "Ocultar PIN" : "Mostrar PIN"}
             >
               {showPin ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
           </div>
 
           {message ? (
-            <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-100">
+            <div className="mt-4 rounded-lg border border-amber-400/30 bg-amber-500/10 p-4 text-sm font-bold text-amber-100">
               {message}
             </div>
           ) : null}
 
           <button
-            onClick={handleLogin}
+            type="submit"
             disabled={loading}
-            className="mt-6 flex h-14 w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 font-black text-white transition hover:bg-emerald-500 disabled:opacity-60"
+            className="mt-6 flex h-14 w-full items-center justify-center gap-3 rounded-lg bg-emerald-600 font-black text-white transition hover:bg-emerald-500 disabled:opacity-60"
           >
             {loading ? <Loader2 className="animate-spin" size={18} /> : <Lock size={18} />}
             {loading ? "Validando..." : "Entrar seguro"}
@@ -137,7 +146,7 @@ export default function LoginPage() {
             <Link className="hover:text-cyan-200" href="/terminos">Términos</Link>
             <Link className="hover:text-cyan-200" href="/eliminar-cuenta">Eliminar cuenta</Link>
           </div>
-        </div>
+        </form>
       </section>
     </main>
   );
@@ -145,7 +154,7 @@ export default function LoginPage() {
 
 function Info({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded-2xl border border-cyan-400/15 bg-[#030817] p-4">
+    <div className="rounded-lg border border-cyan-400/15 bg-[#030817] p-4">
       <p className="font-black text-cyan-100">{title}</p>
       <p className="mt-1 text-xs text-slate-400">{text}</p>
     </div>

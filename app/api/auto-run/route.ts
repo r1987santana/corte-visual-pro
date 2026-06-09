@@ -3,7 +3,10 @@ import { requireApiSession } from "@/lib/security/api-guard";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const session = await requireApiSession(request, "compras");
+  if (!session.ok) return session.response;
+
   return NextResponse.json({
     ok: true,
     message: "API auto-run activa. Usa POST para ejecutar la automática total.",

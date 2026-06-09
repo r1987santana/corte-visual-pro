@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/security/api-guard";
+import { checkRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 import type { PermissionKey } from "@/lib/saas/saas-client";
 
 function createToken() {
@@ -18,6 +19,20 @@ export async function POST(request: Request) {
     if (!cleanEmail || !cleanPin) {
       return NextResponse.json({ ok: false, error: "Correo y PIN son requeridos." }, { status: 400 });
     }
+
+    const ipLimit = checkRateLimit(request, {
+      key: "auth-login-ip",
+      limit: 30,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!ipLimit.allowed) return rateLimitResponse(ipLimit);
+
+    const emailLimit = checkRateLimit(request, {
+      key: `auth-login-email:${cleanEmail}`,
+      limit: 8,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!emailLimit.allowed) return rateLimitResponse(emailLimit);
 
     const supabase = getServiceSupabase();
     const { data: userData, error } = await supabase
