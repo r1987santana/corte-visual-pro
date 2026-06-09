@@ -13,12 +13,14 @@ import {
   Save,
   ArrowRight,
   CheckCircle2,
+  ExternalLink,
   XCircle,
   Star,
   ClipboardList,
   UserCheck,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { apiFetch } from "@/lib/saas/auth-client";
 
 type Tab = "dashboard" | "vacantes" | "candidatos" | "pipeline" | "entrevistas" | "evaluaciones";
 
@@ -139,6 +141,17 @@ function formatSchedule(value?: string | null) {
   return value ? new Date(value).toLocaleString("es-DO") : "Sin fecha";
 }
 
+async function fetchAtsCandidates() {
+  try {
+    const response = await apiFetch("/api/hr/ats-candidates");
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.ok) return [] as Candidate[];
+    return (payload.items || []) as Candidate[];
+  } catch {
+    return [] as Candidate[];
+  }
+}
+
 export default function RRHHATSRecruitmentPage() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [jobs, setJobs] = useState<JobOpening[]>([]);
@@ -230,6 +243,11 @@ export default function RRHHATSRecruitmentPage() {
     );
   }, [candidates, search]);
 
+  const candidateById = useMemo(
+    () => new Map(candidates.map((candidate) => [candidate.id, candidate])),
+    [candidates]
+  );
+
   async function loadAll() {
     try {
       setLoading(true);
@@ -237,26 +255,25 @@ export default function RRHHATSRecruitmentPage() {
 
       const [jobsRes, candRes, appRes, intRes, dashRes] = await Promise.all([
         supabase.from("hr_job_openings").select("*").order("created_at", { ascending: false }),
-        supabase.from("hr_candidates").select("*").order("created_at", { ascending: false }),
+        fetchAtsCandidates(),
         supabase.from("v_hr_applications_detail").select("*").order("applied_at", { ascending: false }),
         supabase.from("v_hr_interviews_detail").select("*").order("scheduled_at", { ascending: true }),
         supabase.from("v_hr_ats_dashboard").select("*").maybeSingle(),
       ]);
 
       if (jobsRes.error) throw jobsRes.error;
-      if (candRes.error) throw candRes.error;
       if (appRes.error) throw appRes.error;
       if (intRes.error) throw intRes.error;
       if (dashRes.error) throw dashRes.error;
 
       setJobs((jobsRes.data || []) as JobOpening[]);
-      setCandidates((candRes.data || []) as Candidate[]);
+      setCandidates(candRes);
       setApplications((appRes.data || []) as Application[]);
       setInterviews((intRes.data || []) as Interview[]);
       setDashboard(dashRes.data as Dashboard);
 
       const firstJob = (jobsRes.data || [])[0] as JobOpening | undefined;
-      const firstCandidate = (candRes.data || [])[0] as Candidate | undefined;
+      const firstCandidate = candRes[0] as Candidate | undefined;
       const firstApp = (appRes.data || [])[0] as Application | undefined;
 
       if (firstJob && !applicationForm.job_opening_id) {
@@ -659,7 +676,13 @@ export default function RRHHATSRecruitmentPage() {
                   .sort((a, b) => Number(b.final_score || 0) - Number(a.final_score || 0))
                   .slice(0, 8)
                   .map((a) => (
-                    <AppCard key={a.id} app={a} onMove={moveStage} onHire={hireCandidate} />
+                    <AppCard
+                      key={a.id}
+                      app={a}
+                      candidate={candidateById.get(a.candidate_id)}
+                      onMove={moveStage}
+                      onHire={hireCandidate}
+                    />
                   ))}
                 {!applications.length && <p className="text-sm text-slate-400">No hay aplicaciones.</p>}
               </div>
@@ -774,6 +797,7 @@ export default function RRHHATSRecruitmentPage() {
                         <p className="text-xs text-slate-400">{c.phone} · {c.email}</p>
                         <p className="mt-2 text-sm">{c.current_position || "-"} · {c.years_experience || 0} años exp.</p>
                         <p className="text-sm text-emerald-300">Pretensión: {money(c.expected_salary)}</p>
+                        <CandidateLinks cvUrl={c.cv_url} portfolioUrl={c.portfolio_url} />
                       </div>
                       <StatusBadge status={c.status || "activo"} />
                     </div>
@@ -812,7 +836,13 @@ export default function RRHHATSRecruitmentPage() {
                   <h3 className="mb-3 text-sm font-black">{stage.label}</h3>
                   <div className="space-y-3">
                     {applications.filter((a) => a.stage === stage.id).map((a) => (
-                      <AppCard key={a.id} app={a} onMove={moveStage} onHire={hireCandidate} />
+                      <AppCard
+                        key={a.id}
+                        app={a}
+                        candidate={candidateById.get(a.candidate_id)}
+                        onMove={moveStage}
+                        onHire={hireCandidate}
+                      />
                     ))}
                   </div>
                 </div>
@@ -907,7 +937,13 @@ export default function RRHHATSRecruitmentPage() {
                   .slice()
                   .sort((a, b) => Number(b.final_score || 0) - Number(a.final_score || 0))
                   .map((a) => (
-                    <AppCard key={a.id} app={a} onMove={moveStage} onHire={hireCandidate} />
+                    <AppCard
+                      key={a.id}
+                      app={a}
+                      candidate={candidateById.get(a.candidate_id)}
+                      onMove={moveStage}
+                      onHire={hireCandidate}
+                    />
                   ))}
               </div>
             </Panel>
@@ -920,13 +956,18 @@ export default function RRHHATSRecruitmentPage() {
 
 function AppCard({
   app,
+  candidate,
   onMove,
   onHire,
 }: {
   app: Application;
+  candidate?: Candidate;
   onMove: (id: string, stage: string) => void;
   onHire: (app: Application) => void;
 }) {
+  const cvUrl = app.cv_url || candidate?.cv_url || null;
+  const portfolioUrl = app.portfolio_url || candidate?.portfolio_url || null;
+
   return (
     <div className="rounded-2xl border border-white/10 bg-slate-900 p-4">
       <p className="font-black">{app.candidate_name}</p>
@@ -937,6 +978,8 @@ function AppCard({
         <SmallStat label="Pretensión" value={money(app.expected_salary)} />
         <SmallStat label="Entrev." value={String(app.interviews_count || 0)} />
       </div>
+
+      <CandidateLinks cvUrl={cvUrl} portfolioUrl={portfolioUrl} />
 
       <div className="mt-3 flex flex-wrap gap-2">
         <select
@@ -969,6 +1012,44 @@ function AppCard({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+function CandidateLinks({
+  cvUrl,
+  portfolioUrl,
+}: {
+  cvUrl?: string | null;
+  portfolioUrl?: string | null;
+}) {
+  const links = [
+    { label: "Hoja de vida", href: cvUrl },
+    { label: "Portafolio", href: portfolioUrl },
+  ].filter((link): link is { label: string; href: string } => Boolean(link.href));
+
+  if (!links.length) {
+    return (
+      <div className="mt-3 rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-xs font-bold text-slate-500">
+        Sin hoja de vida adjunta
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {links.map((link) => (
+        <a
+          key={link.label}
+          href={link.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 rounded-xl border border-blue-400/30 bg-blue-500/15 px-3 py-2 text-xs font-black text-blue-100 hover:bg-blue-500/25"
+        >
+          <ExternalLink size={14} />
+          {link.label}
+        </a>
+      ))}
     </div>
   );
 }
