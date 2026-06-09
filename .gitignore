@@ -25,6 +25,8 @@
 # misc
 .DS_Store
 *.pem
+.tmp-vc*/
+.tmp.driveupload/
 
 # debug
 npm-debug.log*

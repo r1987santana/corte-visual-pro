@@ -8,9 +8,14 @@
     "start": "next start",
     "lint": "tsc --noEmit",
     "audit:api-security": "node scripts/api-security-audit.mjs",
+    "audit:pending": "node scripts/pending-change-groups.mjs",
+    "audit:modules": "node scripts/module-size-audit.mjs",
+    "audit:modules:strict": "node scripts/module-size-audit.mjs --strict",
+    "audit:stability": "npm run lint && npm run audit:api-security && npm run audit:modules && npm run test:materials",
     "fix:mojibake-critical": "node scripts/fix-mojibake-critical.mjs --write",
     "test:materials": "node --no-warnings scripts/centro-tv-material-regression.mjs",
     "pilot:check": "node scripts/pilot-check.mjs",
+    "ops:reset-operational-data": "node scripts/reset-operational-data-keep-inventory.mjs",
     "warmup": "node scripts/warmup-routes.mjs"
   },
   "dependencies": {
