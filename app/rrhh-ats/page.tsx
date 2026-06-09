@@ -62,11 +62,10 @@ type Application = {
   job_opening_id: string;
   candidate_id: string;
   stage: string;
-  fit_score: number | null;
-  technical_score: number | null;
+  match_score: number | null;
+  experience_score: number | null;
   culture_score: number | null;
   final_score: number | null;
-  expected_salary: number | null;
   availability_date: string | null;
   rejection_reason: string | null;
   hired_employee_id: string | null;
@@ -79,7 +78,7 @@ type Application = {
   candidate_phone: string | null;
   candidate_email: string | null;
   years_experience: number | null;
-  candidate_expected_salary: number | null;
+  expected_salary: number | null;
   cv_url: string | null;
   portfolio_url: string | null;
   interviews_count: number | null;
@@ -89,12 +88,19 @@ type Application = {
 type Interview = {
   id: string;
   application_id: string;
-  interview_date: string;
+  scheduled_at: string | null;
   interviewer: string | null;
   interview_type: string | null;
+  location?: string | null;
   status: string | null;
-  notes: string | null;
+  feedback: string | null;
   score: number | null;
+  job_code?: string | null;
+  job_title?: string | null;
+  candidate_code?: string | null;
+  candidate_name?: string | null;
+  candidate_email?: string | null;
+  candidate_phone?: string | null;
 };
 
 type Dashboard = {
@@ -127,6 +133,10 @@ function buildRecordCode(prefix: string) {
   const day = new Date().toISOString().slice(2, 10).replace(/-/g, "");
   const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
   return `${prefix}-${day}-${suffix}`;
+}
+
+function formatSchedule(value?: string | null) {
+  return value ? new Date(value).toLocaleString("es-DO") : "Sin fecha";
 }
 
 export default function RRHHATSRecruitmentPage() {
@@ -229,7 +239,7 @@ export default function RRHHATSRecruitmentPage() {
         supabase.from("hr_job_openings").select("*").order("created_at", { ascending: false }),
         supabase.from("hr_candidates").select("*").order("created_at", { ascending: false }),
         supabase.from("v_hr_applications_detail").select("*").order("applied_at", { ascending: false }),
-        supabase.from("hr_interviews").select("*").order("interview_date", { ascending: true }),
+        supabase.from("v_hr_interviews_detail").select("*").order("scheduled_at", { ascending: true }),
         supabase.from("v_hr_ats_dashboard").select("*").maybeSingle(),
       ]);
 
@@ -442,10 +452,10 @@ export default function RRHHATSRecruitmentPage() {
 
     const { error } = await supabase.from("hr_interviews").insert({
       application_id: interviewForm.application_id,
-      interview_date: interviewForm.interview_date,
+      scheduled_at: interviewForm.interview_date,
       interviewer: interviewForm.interviewer || null,
       interview_type: interviewForm.interview_type,
-      notes: interviewForm.notes || null,
+      feedback: interviewForm.notes || null,
       status: "programada",
     });
 
@@ -527,7 +537,7 @@ export default function RRHHATSRecruitmentPage() {
   }
 
   async function hireCandidate(app: Application) {
-    const salary = window.prompt("Salario de contratación:", String(app.expected_salary || app.candidate_expected_salary || 0));
+    const salary = window.prompt("Salario de contratación:", String(app.expected_salary || 0));
     if (salary === null) return;
 
     const startDate = window.prompt("Fecha de entrada YYYY-MM-DD:", new Date().toISOString().slice(0, 10));
@@ -666,7 +676,7 @@ export default function RRHHATSRecruitmentPage() {
                       <div key={i.id} className="rounded-2xl border border-white/10 bg-slate-900 p-4">
                         <p className="font-black">{app?.candidate_name || "Candidato"}</p>
                         <p className="text-xs text-slate-400">{app?.job_title || "-"} · {i.interview_type}</p>
-                        <p className="mt-2 text-sm">{new Date(i.interview_date).toLocaleString("es-DO")}</p>
+                        <p className="mt-2 text-sm">{formatSchedule(i.scheduled_at)}</p>
                         <button
                           onClick={() => markInterviewDone(i.id)}
                           className="mt-3 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold hover:bg-emerald-500"
@@ -845,7 +855,7 @@ export default function RRHHATSRecruitmentPage() {
                         <div>
                           <p className="font-black">{app?.candidate_name || "Candidato"}</p>
                           <p className="text-xs text-slate-400">{app?.job_title || "-"} · {i.interview_type}</p>
-                          <p className="mt-2 text-sm">{new Date(i.interview_date).toLocaleString("es-DO")}</p>
+                          <p className="mt-2 text-sm">{formatSchedule(i.scheduled_at)}</p>
                           <p className="text-sm text-slate-300">{i.interviewer || "-"}</p>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -924,7 +934,7 @@ function AppCard({
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
         <SmallStat label="Score" value={Number(app.final_score || 0).toFixed(1)} />
         <SmallStat label="Exp." value={`${app.years_experience || 0} años`} />
-        <SmallStat label="Pretensión" value={money(app.candidate_expected_salary)} />
+        <SmallStat label="Pretensión" value={money(app.expected_salary)} />
         <SmallStat label="Entrev." value={String(app.interviews_count || 0)} />
       </div>
 
