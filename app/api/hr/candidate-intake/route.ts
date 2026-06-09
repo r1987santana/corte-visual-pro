@@ -13,6 +13,36 @@ function numberValue(value: FormDataEntryValue | null) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+const mojibakeReplacements: Array<[string, string]> = [
+  ["\u00c3\u2030", "\u00c9"],
+  ["\u00c3\u201c", "\u00d3"],
+  ["\u00c3\u0161", "\u00da"],
+  ["\u00c3\u2018", "\u00d1"],
+  ["\u00c3\u00a1", "\u00e1"],
+  ["\u00c3\u00a9", "\u00e9"],
+  ["\u00c3\u00ad", "\u00ed"],
+  ["\u00c3\u00b3", "\u00f3"],
+  ["\u00c3\u00ba", "\u00fa"],
+  ["\u00c3\u00b1", "\u00f1"],
+  ["\u00c2\u00bf", "\u00bf"],
+  ["\u00c2\u00b7", "\u00b7"],
+  ["m\u00c2\u00b2", "m\u00b2"],
+];
+
+function repairPublicText(value: unknown) {
+  if (typeof value !== "string") return value;
+  return mojibakeReplacements.reduce(
+    (current, [from, to]) => current.split(from).join(to),
+    value,
+  );
+}
+
+function cleanPublicJob(row: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(row).map(([key, value]) => [key, repairPublicText(value)]),
+  );
+}
+
 function candidateCode() {
   const day = new Date().toISOString().slice(2, 10).replace(/-/g, "");
   const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -87,7 +117,7 @@ export async function GET(req: Request) {
       .limit(50);
 
     if (error) throw error;
-    return NextResponse.json({ ok: true, jobs: data || [] });
+    return NextResponse.json({ ok: true, jobs: (data || []).map(cleanPublicJob) });
   } catch (error: any) {
     return NextResponse.json({ ok: false, error: error?.message || "No se pudieron cargar las vacantes." }, { status: 500 });
   }
@@ -139,7 +169,7 @@ export async function POST(req: Request) {
         .maybeSingle();
 
       if (jobError) throw jobError;
-      desiredPosition = text(job?.position_title || job?.title || "");
+      desiredPosition = String(repairPublicText(job?.position_title || job?.title || "") || "").trim();
     }
 
     if (!desiredPosition) {
