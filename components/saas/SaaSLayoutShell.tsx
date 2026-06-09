@@ -325,6 +325,7 @@ const navGroups: NavGroup[] = [
         match: [
           "/rrhh",
           "/rrhh/empleados",
+          "/rrhh/captacion",
           "/rrhh/equipos",
           "/rrhh/registro-facial",
           "/rrhh/ponche-facial",
@@ -337,6 +338,7 @@ const navGroups: NavGroup[] = [
         children: [
           { label: "Dashboard RRHH", href: "/rrhh", permission: "rrhh" },
           { label: "Empleados", href: "/rrhh/empleados", permission: "rrhh" },
+          { label: "Captacion", href: "/rrhh/captacion", permission: "rrhh" },
           { label: "Equipos Operativos", href: "/rrhh/equipos", permission: "rrhh" },
           { label: "Registro Facial", href: "/rrhh/registro-facial", permission: "rrhh" },
           { label: "Ponche Facial", href: "/rrhh/ponche-facial", permission: "rrhh" },
@@ -432,7 +434,8 @@ function isPublicClientRoute(pathname: string) {
     pathname.startsWith("/portal/") ||
     pathname.startsWith("/privacidad") ||
     pathname.startsWith("/terminos") ||
-    pathname.startsWith("/eliminar-cuenta")
+    pathname.startsWith("/eliminar-cuenta") ||
+    pathname.startsWith("/trabaja-con-nosotros")
   );
 }
 

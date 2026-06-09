@@ -264,6 +264,7 @@ export default function BICEOPage() {
       <head>
         <title>BI CEO RD Wood System</title>
         <style>
+          @page{size:letter;margin:10mm}
           body{font-family:Arial;margin:30px;color:#111}
           .brand{letter-spacing:8px;color:#005c99;font-weight:900}
           h1{font-size:30px;margin:5px 0}

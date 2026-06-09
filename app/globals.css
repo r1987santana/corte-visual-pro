@@ -432,3 +432,16 @@ body::after {
     opacity: 0.42;
   }
 }
+
+@media print {
+  @page {
+    size: letter;
+    margin: 10mm;
+  }
+
+  html,
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

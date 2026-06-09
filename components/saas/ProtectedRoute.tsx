@@ -24,7 +24,8 @@ function isPublicClientRoute(pathname: string) {
     pathname.startsWith("/referir/") ||
     pathname.startsWith("/privacidad") ||
     pathname.startsWith("/terminos") ||
-    pathname.startsWith("/eliminar-cuenta")
+    pathname.startsWith("/eliminar-cuenta") ||
+    pathname.startsWith("/trabaja-con-nosotros")
   );
 }
 
