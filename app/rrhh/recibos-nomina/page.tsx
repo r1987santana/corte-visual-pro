@@ -138,6 +138,7 @@ function printReceipt(itemId: string) {
       <head>
         <title>Recibo de Nómina</title>
         <style>
+          @page { size: letter; margin: 10mm; }
           * { box-sizing: border-box; }
           body {
             margin: 0;

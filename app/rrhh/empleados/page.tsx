@@ -180,6 +180,208 @@ function date(value: any) {
   }
 }
 
+function safeHtml(value: any) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function contractField(value: any, fallback = "____________________________") {
+  const text = String(value ?? "").trim();
+  return safeHtml(text || fallback);
+}
+
+function salaryTypeLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    mensual: "mensual",
+    quincenal: "quincenal",
+    semanal: "semanal",
+    por_hora: "por hora",
+  };
+  return labels[String(value || "").toLowerCase()] || String(value || "mensual");
+}
+
+function buildLaborContractHtml(employee: Employee) {
+  const generatedAt = new Date().toLocaleString("es-DO");
+  const salaryAmount = money(employee.salary || 0);
+  const hourlyAmount = money(employee.hourly_rate || 0);
+  const payMode = salaryTypeLabel(employee.salary_type);
+  const salaryText =
+    payMode === "por hora"
+      ? `${hourlyAmount} por hora, sin perjuicio de pagos, recargos y beneficios que correspondan por ley`
+      : `${salaryAmount} (${payMode}), pagadero por la via y periodicidad definida por la empresa`;
+
+  const clauses = [
+    {
+      title: "1. Identificacion de las partes",
+      body:
+        "RDSS SANTANA GROUP, RNC 133-45900-2, operando comercialmente como RD Wood System, en lo adelante LA EMPRESA, contrata a " +
+        `${contractField(employee.full_name)} cedula/identificacion ${contractField(employee.identification)} ` +
+        `domiciliado en ${contractField(employee.address)}, telefono ${contractField(employee.phone)}, email ${contractField(employee.email, "no indicado")}, ` +
+        "en lo adelante EL TRABAJADOR.",
+    },
+    {
+      title: "2. Cargo, departamento y objeto",
+      body:
+        `EL TRABAJADOR prestara servicios personales bajo direccion de LA EMPRESA como ${contractField(employee.position)} ` +
+        `en el departamento de ${contractField(employee.department)}. Sus funciones incluyen las tareas propias del cargo, ` +
+        "las instrucciones razonables de sus supervisores, el cumplimiento de procesos internos, calidad, seguridad, orden y cuidado de clientes, materiales, herramientas e informacion.",
+    },
+    {
+      title: "3. Tipo, fecha de inicio y lugar de trabajo",
+      body:
+        `La relacion inicia el ${contractField(employee.hire_date ? date(employee.hire_date) : "")}. ` +
+        "Salvo pacto escrito distinto, se presume por tiempo indefinido. El lugar ordinario de trabajo sera la planta, taller, oficinas, proyectos, instalaciones de clientes o rutas operativas asignadas por LA EMPRESA dentro de sus necesidades de servicio.",
+    },
+    {
+      title: "4. Jornada, asistencia y horas extraordinarias",
+      body:
+        "La jornada, descansos, permisos y asistencia se manejaran conforme al Codigo de Trabajo, politicas internas y horarios publicados por LA EMPRESA. " +
+        "El registro de asistencia podra realizarse por QR, PIN, sistema facial, evidencia fotografica, geolocalizacion operacional o medios internos permitidos. " +
+        "Toda hora extraordinaria, salida, instalacion fuera de horario o labor especial requiere autorizacion previa de un supervisor autorizado.",
+    },
+    {
+      title: "5. Salario, forma de pago y deducciones",
+      body:
+        `LA EMPRESA pagara a EL TRABAJADOR ${salaryText}. ` +
+        `Banco/cuenta registrada: ${contractField(employee.bank_name, "pendiente")} / ${contractField(employee.bank_account, "pendiente")}. ` +
+        "Las deducciones, retenciones, avances, prestamos, ausencias, tardanzas, seguridad social, impuestos y otros descuentos aplicaran solo cuando procedan conforme a la ley, autorizaciones validas o politicas internas aceptadas.",
+    },
+    {
+      title: "6. Confidencialidad y proteccion de informacion",
+      body:
+        "EL TRABAJADOR se obliga a guardar reserva sobre precios, clientes, cotizaciones, contratos, disenos, renders, planos, archivos CNC/DXF, recetas, proveedores, margenes, inventario, procesos, claves, accesos y cualquier informacion interna. " +
+        "Esta obligacion se mantiene durante y despues de la relacion laboral. Queda prohibido copiar, divulgar, reenviar o usar informacion de LA EMPRESA para fines personales o de terceros sin autorizacion escrita.",
+    },
+    {
+      title: "7. Propiedad de trabajos, disenos y archivos",
+      body:
+        "Todo diseno, plano, render, documento, foto, video, archivo digital, mejora, proceso, receta, presupuesto, etiqueta, reporte, codigo, configuracion, base de datos o material creado, recibido o modificado por EL TRABAJADOR en funciones de trabajo pertenece a LA EMPRESA, salvo pacto escrito distinto.",
+    },
+    {
+      title: "8. Herramientas, equipos y materiales",
+      body:
+        "Las herramientas, uniformes, equipos, telefonos, llaves, vehiculos, materiales, accesos, cuentas, dispositivos y activos entregados son para uso laboral. EL TRABAJADOR debe cuidarlos, reportar danos o perdidas de inmediato y devolverlos al ser requerido o al finalizar la relacion.",
+    },
+    {
+      title: "9. Seguridad, disciplina e integridad",
+      body:
+        "EL TRABAJADOR acepta cumplir normas de seguridad, uso de proteccion personal, orden, limpieza, control de calidad, trato respetuoso, no violencia, no acoso, no sobornos, no consumo de sustancias durante labores y no conflicto de intereses. " +
+        "Las faltas, danos, negligencias, ausencias, abandono, divulgacion de informacion, fraude, hurto o incumplimientos se manejaran conforme a la ley, politicas internas y evidencias documentadas.",
+    },
+    {
+      title: "10. Politicas internas y modificaciones",
+      body:
+        "Forman parte de este contrato las politicas internas comunicadas por LA EMPRESA, siempre que no contradigan la ley. Cualquier cambio esencial de salario, cargo, jornada, lugar o condiciones principales debe documentarse por escrito cuando corresponda.",
+    },
+    {
+      title: "11. No renuncia de derechos y ley aplicable",
+      body:
+        "Ninguna clausula de este documento limita derechos laborales irrenunciables. Lo no previsto se regira por el Codigo de Trabajo de la Republica Dominicana, normas complementarias y acuerdos escritos validos entre las partes.",
+    },
+    {
+      title: "12. Entrega de documentos y expediente",
+      body:
+        "EL TRABAJADOR declara que los datos entregados son correctos y autoriza su uso para expediente laboral, nomina, seguridad social, control de asistencia, seguridad operacional y contacto interno. " +
+        "Debe entregar cedula, referencias, certificaciones, licencias, cuenta bancaria y documentos requeridos para completar el expediente.",
+    },
+  ];
+
+  const rows = [
+    ["Empleado", contractField(employee.full_name)],
+    ["Codigo", contractField(employee.employee_code, "pendiente")],
+    ["Cedula / ID", contractField(employee.identification)],
+    ["Cargo", contractField(employee.position)],
+    ["Departamento", contractField(employee.department)],
+    ["Fecha de ingreso", contractField(employee.hire_date ? date(employee.hire_date) : "")],
+    ["Salario", safeHtml(salaryText)],
+    ["Estado", contractField(employee.status || "activo")],
+  ];
+
+  return `
+    <html>
+      <head>
+        <title>Contrato laboral - ${contractField(employee.full_name, "empleado")}</title>
+        <style>
+          @page { size: letter; margin: 18mm; }
+          body { font-family: Arial, sans-serif; color:#111827; background:#fff; line-height:1.42; }
+          .top { border-bottom:3px solid #0f766e; padding-bottom:14px; margin-bottom:18px; }
+          .brand { color:#0f766e; font-size:11px; font-weight:900; letter-spacing:3px; text-transform:uppercase; }
+          h1 { margin:6px 0 6px; font-size:25px; }
+          h2 { margin:18px 0 6px; font-size:15px; color:#0f172a; }
+          p, li { font-size:12px; }
+          .muted { color:#475569; font-size:11px; }
+          .notice { border:1px solid #f59e0b; background:#fffbeb; padding:10px 12px; border-radius:10px; font-size:11px; margin:12px 0; }
+          table { width:100%; border-collapse:collapse; margin:14px 0; font-size:12px; }
+          td { border:1px solid #cbd5e1; padding:8px; vertical-align:top; }
+          td:first-child { width:160px; background:#f8fafc; font-weight:800; color:#334155; }
+          .clause { break-inside:avoid; border-bottom:1px solid #e2e8f0; padding-bottom:8px; }
+          .signatures { display:grid; grid-template-columns:1fr 1fr; gap:32px; margin-top:46px; }
+          .sig { border-top:1px solid #111827; padding-top:8px; font-size:12px; text-align:center; }
+          .footer { margin-top:24px; font-size:10px; color:#64748b; }
+          @media print { button { display:none; } }
+        </style>
+      </head>
+      <body>
+        <div class="top">
+          <div class="brand">RD Wood System - RRHH</div>
+          <h1>Contrato laboral base</h1>
+          <p class="muted">Generado por RD Wood System el ${safeHtml(generatedAt)}. Este documento debe imprimirse en dos originales y revisarse antes de firma.</p>
+        </div>
+
+        <div class="notice">
+          Borrador operativo para formalizar la relacion laboral. Debe ser validado por RRHH/asesoria legal antes de firma definitiva. No sustituye asesoria juridica.
+        </div>
+
+        <table>
+          <tbody>
+            ${rows.map(([label, value]) => `<tr><td>${label}</td><td>${value}</td></tr>`).join("")}
+          </tbody>
+        </table>
+
+        ${clauses
+          .map(
+            (clause) => `
+              <section class="clause">
+                <h2>${safeHtml(clause.title)}</h2>
+                <p>${clause.body}</p>
+              </section>
+            `
+          )
+          .join("")}
+
+        <div class="signatures">
+          <div class="sig">
+            LA EMPRESA<br />
+            RDSS SANTANA GROUP<br />
+            Nombre y cargo: ____________________________
+          </div>
+          <div class="sig">
+            EL TRABAJADOR<br />
+            ${contractField(employee.full_name)}<br />
+            Cedula/ID: ${contractField(employee.identification)}
+          </div>
+        </div>
+
+        <div class="signatures">
+          <div class="sig">Testigo 1<br />Nombre / Cedula / Firma</div>
+          <div class="sig">Testigo 2<br />Nombre / Cedula / Firma</div>
+        </div>
+
+        <p class="footer">
+          Checklist de archivo: cedula, direccion, telefono, cargo, salario, fecha de ingreso, firmas, testigos si aplica,
+          copia al trabajador, copia para expediente y PDF firmado cargado en Documentos como Contrato.
+        </p>
+
+        <script>window.print()</script>
+      </body>
+    </html>
+  `;
+}
+
 function cx(...classes: Array<string | null | undefined | false>) {
   return classes.filter(Boolean).join(" ");
 }
@@ -626,6 +828,47 @@ export default function RRHHEmpleadosMaestroPage() {
     win.document.close();
   }
 
+  function printLaborContract() {
+    if (!form.full_name.trim()) {
+      setMessage("Completa el nombre del empleado antes de generar el contrato.");
+      return;
+    }
+
+    if (!form.identification.trim()) {
+      const ok = window.confirm("Falta la cedula/identificacion. Puedes generar un borrador, pero debe completarse antes de firma. Continuar?");
+      if (!ok) return;
+    }
+
+    const employeeForContract: Employee = {
+      id: selectedEmployee?.id || "pendiente",
+      employee_code: selectedEmployee?.employee_code || "pendiente",
+      full_name: form.full_name.trim(),
+      identification: form.identification.trim() || null,
+      phone: form.phone.trim() || null,
+      email: form.email.trim() || null,
+      address: form.address.trim() || null,
+      position: form.position || null,
+      department: form.department || null,
+      hire_date: form.hire_date || today(),
+      salary: Number(form.salary || 0),
+      salary_type: form.salary_type || "mensual",
+      hourly_rate: Number(form.hourly_rate || 0),
+      status: form.status || "activo",
+      bank_name: form.bank_name.trim() || null,
+      bank_account: form.bank_account.trim() || null,
+    };
+
+    const win = window.open("", "_blank");
+    if (!win) {
+      setMessage("Permite ventanas emergentes para imprimir el contrato laboral.");
+      return;
+    }
+
+    win.document.write(buildLaborContractHtml(employeeForContract));
+    win.document.close();
+    setMessage("Contrato laboral generado. Al firmarlo, subelo en Documentos como tipo Contrato.");
+  }
+
   const avgScore =
     selectedEvaluations.length > 0
       ? selectedEvaluations.reduce((acc, e) => acc + n(e.final_score), 0) / selectedEvaluations.length
@@ -776,6 +1019,35 @@ export default function RRHHEmpleadosMaestroPage() {
                 <Input label="Cuenta bancaria" value={form.bank_account} onChange={(v) => update("bank_account", v)} />
                 <Input label="Días vacaciones/año" type="number" value={form.vacation_days_per_year} onChange={(v) => update("vacation_days_per_year", v)} />
                 <Input label="Balance vacaciones" type="number" value={form.vacation_balance} onChange={(v) => update("vacation_balance", v)} />
+              </div>
+            </Section>
+
+            <Section title="Contrato laboral" subtitle="Generador base para contratacion y expediente." icon={<ShieldCheck />}>
+              <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
+                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
+                  <p className="text-sm font-bold leading-relaxed text-emerald-50">
+                    Crea un contrato laboral base con datos del empleado, cargo, salario, jornada, confidencialidad,
+                    propiedad de disenos/archivos, control de herramientas, seguridad, disciplina y firmas.
+                  </p>
+                  <div className="mt-4 grid gap-2 text-xs font-bold text-slate-300 sm:grid-cols-2">
+                    <span className="rounded-xl border border-white/10 bg-[#030817] px-3 py-2">Datos minimos del contrato</span>
+                    <span className="rounded-xl border border-white/10 bg-[#030817] px-3 py-2">Clausulas de confidencialidad</span>
+                    <span className="rounded-xl border border-white/10 bg-[#030817] px-3 py-2">Equipos, accesos y materiales</span>
+                    <span className="rounded-xl border border-white/10 bg-[#030817] px-3 py-2">Firmas y checklist de archivo</span>
+                  </div>
+                  <p className="mt-3 text-xs font-semibold text-slate-400">
+                    Borrador operativo: debe revisarse antes de firma y luego cargarse firmado en Documentos como Contrato.
+                  </p>
+                </div>
+
+                <button
+                  onClick={printLaborContract}
+                  disabled={!form.full_name.trim()}
+                  className="inline-flex min-h-[132px] items-center justify-center gap-3 rounded-2xl bg-gradient-to-br from-emerald-500 to-cyan-600 px-5 py-4 text-center text-sm font-black uppercase text-white shadow-xl shadow-emerald-950/30 disabled:opacity-50"
+                >
+                  <FileText size={20} />
+                  Generar contrato laboral
+                </button>
               </div>
             </Section>
 

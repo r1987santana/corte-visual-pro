@@ -27,12 +27,12 @@ type JobOpening = {
   code: string | null;
   title: string;
   department: string | null;
-  position: string | null;
+  position_title: string | null;
   location: string | null;
   employment_type: string | null;
-  salary_min: number | null;
-  salary_max: number | null;
-  description: string | null;
+  min_salary: number | null;
+  max_salary: number | null;
+  responsibilities: string | null;
   requirements: string | null;
   benefits: string | null;
   status: string | null;
@@ -42,16 +42,15 @@ type JobOpening = {
 
 type Candidate = {
   id: string;
-  code: string | null;
+  candidate_code: string | null;
   full_name: string;
-  identification: string | null;
   phone: string | null;
   email: string | null;
-  address: string | null;
-  desired_position: string | null;
-  current_company: string | null;
+  source: string | null;
+  current_position: string | null;
   years_experience: number | null;
   expected_salary: number | null;
+  city: string | null;
   cv_url: string | null;
   portfolio_url: string | null;
   notes: string | null;
@@ -123,6 +122,12 @@ const stages = [
   { id: "contratado", label: "Contratado" },
   { id: "rechazado", label: "Rechazado" },
 ];
+
+function buildRecordCode(prefix: string) {
+  const day = new Date().toISOString().slice(2, 10).replace(/-/g, "");
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `${prefix}-${day}-${suffix}`;
+}
 
 export default function RRHHATSRecruitmentPage() {
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -199,7 +204,7 @@ export default function RRHHATSRecruitmentPage() {
     const q = search.trim().toLowerCase();
     if (!q) return jobs;
     return jobs.filter((j) =>
-      [j.code, j.title, j.department, j.position, j.status].filter(Boolean).join(" ").toLowerCase().includes(q)
+      [j.code, j.title, j.department, j.position_title, j.status].filter(Boolean).join(" ").toLowerCase().includes(q)
     );
   }, [jobs, search]);
 
@@ -207,7 +212,7 @@ export default function RRHHATSRecruitmentPage() {
     const q = search.trim().toLowerCase();
     if (!q) return candidates;
     return candidates.filter((c) =>
-      [c.code, c.full_name, c.identification, c.phone, c.email, c.desired_position, c.status]
+      [c.candidate_code, c.full_name, c.phone, c.email, c.current_position, c.source, c.city, c.status]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -275,17 +280,20 @@ export default function RRHHATSRecruitmentPage() {
     try {
       setLoading(true);
       const { error } = await supabase.from("hr_job_openings").insert({
+        code: buildRecordCode("VAC"),
         title: jobForm.title,
         department: jobForm.department || null,
-        position: jobForm.position || jobForm.title,
+        position_title: jobForm.position || jobForm.title,
         location: jobForm.location || null,
         employment_type: jobForm.employment_type,
-        salary_min: Number(jobForm.salary_min || 0),
-        salary_max: Number(jobForm.salary_max || 0),
-        description: jobForm.description || null,
+        min_salary: Number(jobForm.salary_min || 0),
+        max_salary: Number(jobForm.salary_max || 0),
+        responsibilities: jobForm.description || null,
         requirements: jobForm.requirements || null,
         benefits: jobForm.benefits || null,
         openings_count: Number(jobForm.openings_count || 1),
+        priority: "media",
+        published_at: new Date().toISOString(),
         status: "abierta",
       });
 
@@ -322,19 +330,27 @@ export default function RRHHATSRecruitmentPage() {
 
     try {
       setLoading(true);
+      const notes = [
+        candidateForm.identification ? `Cedula: ${candidateForm.identification}` : "",
+        candidateForm.address ? `Direccion: ${candidateForm.address}` : "",
+        candidateForm.current_company ? `Empresa actual: ${candidateForm.current_company}` : "",
+        candidateForm.notes,
+      ].filter(Boolean).join("\n");
+
       const { error } = await supabase.from("hr_candidates").insert({
+        candidate_code: buildRecordCode("CAND"),
         full_name: candidateForm.full_name,
-        identification: candidateForm.identification || null,
         phone: candidateForm.phone || null,
         email: candidateForm.email || null,
-        address: candidateForm.address || null,
-        desired_position: candidateForm.desired_position || null,
-        current_company: candidateForm.current_company || null,
+        source: "manual_rrhh",
+        current_position: candidateForm.desired_position || candidateForm.current_company || null,
         years_experience: Number(candidateForm.years_experience || 0),
         expected_salary: Number(candidateForm.expected_salary || 0),
+        city: null,
         cv_url: candidateForm.cv_url || null,
         portfolio_url: candidateForm.portfolio_url || null,
-        notes: candidateForm.notes || null,
+        notes: notes || null,
+        ai_score: 0,
         status: "activo",
       });
 
@@ -378,11 +394,12 @@ export default function RRHHATSRecruitmentPage() {
         .insert({
           job_opening_id: applicationForm.job_opening_id,
           candidate_id: applicationForm.candidate_id,
-          fit_score: Number(applicationForm.fit_score || 0),
-          technical_score: Number(applicationForm.technical_score || 0),
+          match_score: Number(applicationForm.fit_score || 0),
+          experience_score: Number(applicationForm.technical_score || 0),
           culture_score: Number(applicationForm.culture_score || 0),
-          expected_salary: Number(applicationForm.expected_salary || 0),
-          availability_date: applicationForm.availability_date || null,
+          salary_fit_score: 0,
+          final_score: Number(applicationForm.fit_score || 0),
+          status: "activo",
           stage: "nuevo",
         })
         .select("id")
@@ -390,7 +407,10 @@ export default function RRHHATSRecruitmentPage() {
 
       if (error) throw error;
 
-      await supabase.rpc("calculate_application_score", { p_application_id: data.id });
+      const scoreRes = await supabase.rpc("calculate_application_score", { p_application_id: data.id });
+      if (scoreRes.error) {
+        await supabase.rpc("hr_ats_recalculate_application_score", { p_application_id: data.id });
+      }
 
       setMessage("Aplicación creada correctamente.");
       await loadAll();
@@ -698,9 +718,9 @@ export default function RRHHATSRecruitmentPage() {
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div>
                         <p className="font-black">{j.code} · {j.title}</p>
-                        <p className="text-xs text-slate-400">{j.department} · {j.position} · {j.location}</p>
-                        <p className="mt-2 text-sm text-emerald-300">{money(j.salary_min)} - {money(j.salary_max)}</p>
-                        <p className="mt-2 text-sm text-slate-300">{j.description || "Sin descripción"}</p>
+                        <p className="text-xs text-slate-400">{j.department} · {j.position_title} · {j.location}</p>
+                        <p className="mt-2 text-sm text-emerald-300">{money(j.min_salary)} - {money(j.max_salary)}</p>
+                        <p className="mt-2 text-sm text-slate-300">{j.responsibilities || "Sin descripción"}</p>
                       </div>
                       <StatusBadge status={j.status || "abierta"} />
                     </div>
@@ -740,9 +760,9 @@ export default function RRHHATSRecruitmentPage() {
                   <div key={c.id} className="rounded-2xl border border-white/10 bg-slate-900 p-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div>
-                        <p className="font-black">{c.code} · {c.full_name}</p>
+                        <p className="font-black">{c.candidate_code} · {c.full_name}</p>
                         <p className="text-xs text-slate-400">{c.phone} · {c.email}</p>
-                        <p className="mt-2 text-sm">{c.desired_position || "-"} · {c.years_experience || 0} años exp.</p>
+                        <p className="mt-2 text-sm">{c.current_position || "-"} · {c.years_experience || 0} años exp.</p>
                         <p className="text-sm text-emerald-300">Pretensión: {money(c.expected_salary)}</p>
                       </div>
                       <StatusBadge status={c.status || "activo"} />
@@ -765,7 +785,7 @@ export default function RRHHATSRecruitmentPage() {
                 </Select>
                 <Select label="Candidato" value={applicationForm.candidate_id} onChange={(v) => setApplicationForm({ ...applicationForm, candidate_id: v })}>
                   <option value="">Seleccionar...</option>
-                  {candidates.filter((c) => c.status === "activo").map((c) => <option key={c.id} value={c.id}>{c.code} · {c.full_name}</option>)}
+                  {candidates.filter((c) => c.status === "activo").map((c) => <option key={c.id} value={c.id}>{c.candidate_code} · {c.full_name}</option>)}
                 </Select>
                 <Input label="Fit" value={applicationForm.fit_score} onChange={(v) => setApplicationForm({ ...applicationForm, fit_score: v })} />
                 <Input label="Técnico" value={applicationForm.technical_score} onChange={(v) => setApplicationForm({ ...applicationForm, technical_score: v })} />

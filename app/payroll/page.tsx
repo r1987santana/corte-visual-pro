@@ -262,6 +262,7 @@ export default function PayrollCompensationPage() {
       <head>
         <title>${r.receipt_code}</title>
         <style>
+          @page{size:letter;margin:10mm}
           body{font-family:Arial;margin:40px;color:#111}
           .box{border:1px solid #ddd;border-radius:16px;padding:24px;max-width:760px;margin:auto}
           h1{margin:0;font-size:28px}

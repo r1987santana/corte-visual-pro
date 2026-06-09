@@ -181,8 +181,8 @@ function statusClass(value?: string | null) {
   return "border-slate-500/30 bg-slate-500/15 text-slate-200";
 }
 
-export default function EmployeeSelfServicePage({ initialTab = "dashboard" }: { initialTab?: Tab } = {}) {
-  const [tab, setTab] = useState<Tab>(initialTab);
+export default function EmployeeSelfServicePage() {
+  const [tab, setTab] = useState<Tab>("dashboard");
   const [canSwitchEmployee, setCanSwitchEmployee] = useState(false);
   const [dashboard, setDashboard] = useState<Dashboard>(emptyDashboard);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -403,6 +403,7 @@ export default function EmployeeSelfServicePage({ initialTab = "dashboard" }: { 
       <head>
         <title>${doc.document_code}</title>
         <style>
+          @page{size:letter;margin:10mm}
           body{font-family:Arial;margin:40px;color:#111;background:#f8fafc}
           .box{border:1px solid #ddd;border-radius:18px;padding:28px;max-width:760px;margin:auto;background:white}
           .brand{letter-spacing:4px;color:#0f766e;font-weight:800}

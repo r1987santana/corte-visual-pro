@@ -246,6 +246,7 @@ export default function LMSProPage() {
       <head>
         <title>${c.certificate_code}</title>
         <style>
+          @page{size:letter;margin:10mm}
           body{font-family:Arial;margin:40px;color:#0f172a;background:#f8fafc}
           .cert{border:8px solid #1d4ed8;border-radius:28px;padding:42px;max-width:920px;margin:auto;background:white;text-align:center}
           .brand{letter-spacing:6px;color:#2563eb;font-weight:800}
