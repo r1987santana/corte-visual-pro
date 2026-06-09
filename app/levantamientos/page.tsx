@@ -126,6 +126,7 @@ function openVisitIncomeReceipt(params: {
       <head>
         <title>RECIBO ${params.incomeCode}</title>
         <style>
+          @page{size:letter;margin:10mm}
           body { margin: 0; padding: 22px; font-family: Arial, sans-serif; color: #111; background: #fff; }
           .page { max-width: 880px; margin: 0 auto; }
           .copy { border: 1.5px solid #111; border-radius: 16px; padding: 18px; margin-bottom: 18px; page-break-inside: avoid; }

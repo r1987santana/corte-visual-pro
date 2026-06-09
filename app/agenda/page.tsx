@@ -331,6 +331,7 @@ export default function AgendaPage() {
           <meta charset="utf-8" />
           <title>Recibo ${escapeHtml(paymentCode)}</title>
           <style>
+            @page { size: letter; margin: 10mm; }
             * { box-sizing: border-box; }
             body { margin: 0; padding: 18px; font-family: Arial, sans-serif; color: #111827; background: #f8fafc; }
             .receipt { width: 760px; max-width: 100%; margin: 0 auto; border: 1px solid #111827; background: white; padding: 22px; }

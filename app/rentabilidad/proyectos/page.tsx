@@ -353,6 +353,7 @@ export default function ProyectosVentasPage() {
       <head>
         <title>${selected.invoice_number}</title>
         <style>
+          @page { size: letter; margin: 10mm; }
           body { font-family: Arial; padding: 32px; color:#111827; }
           .top { display:flex; justify-content:space-between; border-bottom:2px solid #111827; padding-bottom:16px; margin-bottom:24px; }
           table { width:100%; border-collapse:collapse; margin-top:24px; }

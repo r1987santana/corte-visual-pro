@@ -1,7 +1,5 @@
-"use client";
-
-import { HelpdeskSolicitudesInternasPage } from "@/app/helpdesk/page";
+import { redirect } from "next/navigation";
 
 export default function FaltantesProyectoPage() {
-  return <HelpdeskSolicitudesInternasPage forcedType="faltante_proyecto" />;
+  redirect("/helpdesk?type=faltante_proyecto");
 }

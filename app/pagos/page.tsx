@@ -307,6 +307,7 @@ function openIncomeReceipt(input: {
       <head>
         <title>Recibo ${input.incomeCode}</title>
         <style>
+          @page{size:letter;margin:8mm}
           body{margin:0;padding:22px;font-family:Arial,sans-serif;color:#111;background:#fff}
           .page{max-width:880px;margin:0 auto}
           .copy{border:1.5px solid #111;border-radius:16px;padding:18px;margin-bottom:18px;page-break-inside:avoid}
@@ -397,6 +398,7 @@ function openSaleReceipt(input: {
       <head>
         <title>Recibo ${input.incomeCode}</title>
         <style>
+          @page{size:letter;margin:8mm}
           body{margin:0;padding:22px;font-family:Arial,sans-serif;color:#111;background:#fff}
           .page{max-width:880px;margin:0 auto}
           .copy{border:1.5px solid #111;border-radius:16px;padding:18px;margin-bottom:18px;page-break-inside:avoid}
@@ -500,6 +502,7 @@ function openCashReport(input: {
       <head>
         <title>Cierre Caja ${input.session.cash_date}</title>
         <style>
+          @page{size:letter;margin:8mm}
           body{margin:0;padding:22px;font-family:Arial,sans-serif;color:#111;background:#fff}
           .page{max-width:980px;margin:0 auto}
           .top{display:flex;justify-content:space-between;gap:16px;border-bottom:2px solid #111;padding-bottom:14px}

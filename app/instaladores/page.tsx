@@ -444,10 +444,12 @@ Gracias por confiar en RD Wood System.`;
       return;
     }
 
-    const doc = new jsPDF("p", "mm", "a4");
+    const doc = new jsPDF("p", "mm", "letter");
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
 
     doc.setFillColor(15, 23, 42);
-    doc.rect(0, 0, 210, 26, "F");
+    doc.rect(0, 0, pageW, 26, "F");
 
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(16);
@@ -499,7 +501,7 @@ Gracias por confiar en RD Wood System.`;
     instalacionDetalles.forEach((d) => {
       const p = piezaPorId(d.pieza_id);
 
-      if (y > 270) {
+      if (y > pageH - 24) {
         doc.addPage();
         y = 18;
       }
@@ -542,7 +544,7 @@ Gracias por confiar en RD Wood System.`;
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-    doc.text("Este documento sirve como evidencia de entrega e instalación.", 12, 292);
+    doc.text("Este documento sirve como evidencia de entrega e instalación.", 12, pageH - 10);
 
     doc.save(`reporte-instalacion-${selectedOrder.client_name || "cliente"}.pdf`);
   }

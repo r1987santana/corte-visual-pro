@@ -1,7 +1,5 @@
-"use client";
-
-import { HelpdeskSolicitudesInternasPage } from "@/app/helpdesk/page";
+import { redirect } from "next/navigation";
 
 export default function RequisicionAlmacenPage() {
-  return <HelpdeskSolicitudesInternasPage forcedType="requisicion_almacen" />;
+  redirect("/helpdesk?type=requisicion_almacen");
 }

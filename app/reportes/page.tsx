@@ -1153,7 +1153,7 @@ export default function ReportesPage() {
   }
 
   function exportPDF(type: ActiveTab) {
-    const doc = new jsPDF("landscape");
+    const doc = new jsPDF("landscape", "mm", "letter");
     const pageWidth = doc.internal.pageSize.getWidth();
 
     doc.setFillColor(15, 23, 42);
@@ -1214,6 +1214,7 @@ export default function ReportesPage() {
         <head>
           <title>${getReportTitle(type)}</title>
           <style>
+            @page { size: letter landscape; margin: 10mm; }
             body { font-family: Arial, Helvetica, sans-serif; padding: 28px; color: #0f172a; }
             .header { border-bottom: 3px solid #0f172a; padding-bottom: 14px; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: flex-start; }
             .brand h1 { margin: 0; font-size: 24px; letter-spacing: 1px; }

@@ -912,7 +912,7 @@ export default function EntregaFinalDigitalPage() {
       <style jsx global>{`
         @media print {
           @page {
-            size: A4;
+            size: letter;
             margin: 8mm;
           }
 
@@ -920,7 +920,7 @@ export default function EntregaFinalDigitalPage() {
           body {
             margin: 0 !important;
             padding: 0 !important;
-            width: 210mm !important;
+            width: 216mm !important;
             min-height: auto !important;
             background: white !important;
             overflow: visible !important;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getStoredUser } from "@/lib/saas/auth-client";
 import {
@@ -233,7 +233,7 @@ function labelType(value: string) {
   return REQUEST_TYPES.find((t) => t.value === value)?.label || value;
 }
 
-export function HelpdeskSolicitudesInternasPage({ forcedType }: { forcedType?: string } = {}) {
+function HelpdeskSolicitudesInternasPage({ forcedType }: { forcedType?: string } = {}) {
   const searchParams = useSearchParams();
   const routeType = forcedType || searchParams.get("type") || "todos";
   const lockedType = REQUEST_TYPES.some((type) => type.value === routeType) ? routeType : "todos";
@@ -1075,19 +1075,7 @@ export function HelpdeskSolicitudesInternasPage({ forcedType }: { forcedType?: s
 }
 
 export default function HelpdeskPage() {
-  const router = useRouter();
-
-  useEffect(() => {
-    router.replace("/solicitudes-internas/requisicion-compra");
-  }, [router]);
-
-  return (
-    <main className="min-h-screen bg-[#020817] px-6 py-10 text-white">
-      <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-6 text-sm font-black text-cyan-100">
-        Redirigiendo al modulo de requisicion de compra...
-      </div>
-    </main>
-  );
+  return <HelpdeskSolicitudesInternasPage />;
 }
 
 function Kpi({ label, value, icon, accent = "text-cyan-300" }: { label: string; value: any; icon: any; accent?: string }) {
