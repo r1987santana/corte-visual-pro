@@ -1,0 +1,1666 @@
+import { NextResponse } from "next/server";
+import { getServiceSupabase, requireApiSession } from "@/lib/security/api-guard";
+import { isTrustedLocalRequest } from "@/lib/security/local-session";
+import {
+  TurquesaInventoryTrend,
+  TurquesaKitchenTicket,
+  TurquesaOrderItem,
+  TurquesaPurchaseRequest,
+  TurquesaRecipeIngredient,
+  TurquesaSnapshot,
+  TurquesaTableStatus,
+  freshDemoSnapshot,
+} from "@/lib/turquesa/restaurant-data";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const RESTAURANT_SLUG = "turquesa-restaurante";
+
+type DbContext = {
+  supabase: any;
+  actorEmail: string;
+  localDev: boolean;
+};
+
+type OperationBody = Record<string, any>;
+type PaymentMethod = "cash" | "card" | "transfer";
+type WifiLeadStatus = "nuevo" | "promocion" | "cliente" | "no_contactar";
+
+type DbTableRow = {
+  id: string;
+  code: string;
+  seats?: number | string | null;
+  status?: string | null;
+  current_server_name?: string | null;
+  current_started_at?: string | null;
+  current_order_id?: string | null;
+  dining_area_id?: string | null;
+};
+
+type DbOrderRow = {
+  id: string;
+  total?: number | string | null;
+  subtotal?: number | string | null;
+  opened_at?: string | null;
+  status?: string | null;
+};
+
+type DbMenuRow = {
+  id: string;
+  name: string;
+  station?: string | null;
+  price?: number | string | null;
+};
+
+function num(value: unknown) {
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function clean(value: unknown) {
+  return String(value || "").trim();
+}
+
+function normalizePaymentMethod(value: unknown): PaymentMethod {
+  const method = clean(value).toLowerCase();
+  if (method === "cash" || method === "card" || method === "transfer") return method;
+  return "card";
+}
+
+function paymentMethodLabel(method: PaymentMethod) {
+  if (method === "cash") return "efectivo";
+  if (method === "transfer") return "transferencia";
+  return "tarjeta";
+}
+
+function shiftSalesColumn(method: PaymentMethod) {
+  if (method === "cash") return "cash_sales";
+  if (method === "transfer") return "transfer_sales";
+  return "card_sales";
+}
+
+function money(value: unknown) {
+  return Math.round(num(value) * 100) / 100;
+}
+
+function quantity(value: unknown) {
+  return Math.round(num(value) * 1000) / 1000;
+}
+
+function quantityLabel(value: number) {
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function normalizeWifiLeadStatus(value: unknown): WifiLeadStatus {
+  const status = clean(value).toLowerCase();
+  if (status === "nuevo" || status === "promocion" || status === "cliente" || status === "no_contactar") return status;
+  return "cliente";
+}
+
+function reservationIso(dateValue: unknown, timeValue: unknown) {
+  const today = new Date().toISOString().slice(0, 10);
+  const rawDate = clean(dateValue) || today;
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : today;
+  const rawTime = clean(timeValue) || "20:00";
+  const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(rawTime) ? rawTime : "20:00";
+  return new Date(`${date}T${time}:00-04:00`).toISOString();
+}
+
+function publicErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String((error as any)?.message || error || "");
+  if (
+    message.includes("turquesa_") ||
+    message.includes("schema cache") ||
+    message.includes("relation") ||
+    message.includes("does not exist")
+  ) {
+    return "Base Turquesa pendiente de aplicar en Supabase.";
+  }
+  return message || "base Turquesa no disponible";
+}
+
+function timeLabel(value: string | null | undefined) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("es-DO", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
+}
+
+function minutesSince(value: string | null | undefined) {
+  if (!value) return 0;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 0;
+  return Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
+}
+
+function uiTableStatus(value: unknown): TurquesaTableStatus {
+  const status = String(value || "free");
+  if (status === "open" || status === "reserved" || status === "attention" || status === "free") return status;
+  if (status === "cleaning") return "attention";
+  return "free";
+}
+
+function uiInventoryTrend(onHand: number, minimum: number, reorder: number): TurquesaInventoryTrend {
+  if (onHand < minimum) return "critico";
+  if (reorder > 0 && onHand <= reorder) return "bajo";
+  if (minimum > 0 && onHand <= minimum * 1.25) return "bajo";
+  return "ok";
+}
+
+async function getDbContext(request: Request): Promise<DbContext | Response> {
+  const session = await requireApiSession(request, ["dashboard_ceo", "ventas"]);
+  if (session.ok) {
+    return {
+      supabase: session.supabase,
+      actorEmail: session.user.email,
+      localDev: false,
+    };
+  }
+
+  if (process.env.NODE_ENV !== "production" && isTrustedLocalRequest(request)) {
+    return {
+      supabase: getServiceSupabase(),
+      actorEmail: "turquesa-local-dev@rdss.local",
+      localDev: true,
+    };
+  }
+
+  return session.response;
+}
+
+async function getRestaurant(supabase: any) {
+  const { data, error } = await supabase
+    .from("turquesa_restaurants")
+    .select("id,name,location,tax_rate,service_charge_rate")
+    .eq("slug", RESTAURANT_SLUG)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+async function getOpenShift(supabase: any, restaurantId: string) {
+  const { data, error } = await supabase
+    .from("turquesa_shifts")
+    .select("*")
+    .eq("restaurant_id", restaurantId)
+    .eq("status", "open")
+    .order("opened_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
+  const restaurant = await getRestaurant(supabase);
+  if (!restaurant) {
+    return freshDemoSnapshot("Base Turquesa sin seed. Ejecuta scripts/turquesa-restaurant-core.sql.");
+  }
+
+  const shift = await getOpenShift(supabase, restaurant.id);
+
+  const [
+    areasResult,
+    tablesResult,
+    menuResult,
+    reservationsResult,
+    inventoryResult,
+    recipeIngredientsResult,
+    purchaseRequestsResult,
+    leadsResult,
+  ] = await Promise.all([
+    supabase
+      .from("turquesa_dining_areas")
+      .select("id,name")
+      .eq("restaurant_id", restaurant.id),
+    supabase
+      .from("turquesa_tables")
+      .select("id,code,seats,status,current_server_name,current_started_at,current_order_id,dining_area_id,sort_order")
+      .eq("restaurant_id", restaurant.id)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("turquesa_menu_items")
+      .select("id,name,category_name,station,price,prep_minutes,sort_order")
+      .eq("restaurant_id", restaurant.id)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("turquesa_reservations")
+      .select("id,reservation_at,guest_name,pax,source,status,note,table_id")
+      .eq("restaurant_id", restaurant.id)
+      .gte("reservation_at", new Date(new Date().setHours(0, 0, 0, 0)).toISOString())
+      .lt("reservation_at", new Date(new Date().setHours(24, 0, 0, 0)).toISOString())
+      .order("reservation_at", { ascending: true })
+      .limit(20),
+    supabase
+      .from("turquesa_inventory_items")
+      .select("id,item_name,unit,on_hand,minimum_stock,reorder_stock,avg_cost,supplier")
+      .eq("restaurant_id", restaurant.id)
+      .eq("is_active", true)
+      .order("item_name", { ascending: true })
+      .limit(12),
+    supabase
+      .from("turquesa_recipe_ingredients")
+      .select("id,menu_item_id,inventory_item_id,quantity,unit,yield_note")
+      .eq("restaurant_id", restaurant.id)
+      .eq("is_active", true)
+      .order("created_at", { ascending: true })
+      .limit(80),
+    supabase
+      .from("turquesa_purchase_requests")
+      .select("id,request_code,status,priority,total_estimated,requested_at,created_at,turquesa_purchase_request_items(item_name,quantity,unit,supplier,estimated_cost)")
+      .eq("restaurant_id", restaurant.id)
+      .in("status", ["draft", "requested", "approved", "received"])
+      .order("requested_at", { ascending: false })
+      .limit(5),
+    supabase
+      .from("turquesa_wifi_leads")
+      .select("full_name,source,status,last_seen_at,visits")
+      .eq("restaurant_id", restaurant.id)
+      .order("last_seen_at", { ascending: false })
+      .limit(8),
+  ]);
+
+  for (const result of [
+    areasResult,
+    tablesResult,
+    menuResult,
+    reservationsResult,
+    inventoryResult,
+    recipeIngredientsResult,
+    purchaseRequestsResult,
+    leadsResult,
+  ]) {
+    if (result.error) throw result.error;
+  }
+
+  const areas = new Map<string, string>((areasResult.data || []).map((area: any) => [area.id, area.name]));
+  const dbTables = (tablesResult.data || []) as DbTableRow[];
+  const orderIds = dbTables.map((table: any) => table.current_order_id).filter(Boolean);
+
+  const ordersResult = orderIds.length
+    ? await supabase
+        .from("turquesa_orders")
+        .select("id,total,subtotal,opened_at,status")
+        .in("id", orderIds)
+    : { data: [], error: null };
+
+  if (ordersResult.error) throw ordersResult.error;
+  const ordersData = (ordersResult.data || []) as DbOrderRow[];
+  const orders = new Map<string, DbOrderRow>(ordersData.map((order) => [order.id, order]));
+  const tableById = new Map<string, DbTableRow>(dbTables.map((table) => [table.id, table]));
+  const menuById = new Map<string, any>((menuResult.data || []).map((item: any) => [item.id, item]));
+  const inventoryById = new Map<string, any>((inventoryResult.data || []).map((item: any) => [item.id, item]));
+
+  const tables = dbTables.map((table: any) => {
+    const order = table.current_order_id ? orders.get(table.current_order_id) : null;
+    return {
+      id: table.id,
+      label: table.code,
+      seats: Number(table.seats || 0),
+      zone: areas.get(table.dining_area_id) || "Salon",
+      status: uiTableStatus(table.status),
+      server: table.current_server_name || "Libre",
+      total: num(order?.total || order?.subtotal),
+      minutes: minutesSince(table.current_started_at || order?.opened_at),
+    };
+  });
+
+  const ticketQuery = shift?.id
+    ? supabase
+        .from("turquesa_kitchen_tickets")
+        .select("id,ticket_number,table_id,station,status,fired_at")
+        .eq("shift_id", shift.id)
+        .in("status", ["new", "cooking", "ready"])
+        .order("fired_at", { ascending: true })
+        .limit(30)
+    : Promise.resolve({ data: [], error: null });
+
+  const ticketsResult = await ticketQuery;
+  if (ticketsResult.error) throw ticketsResult.error;
+  const ticketIds = (ticketsResult.data || []).map((ticket: any) => ticket.id);
+  const ticketItemsResult = ticketIds.length
+    ? await supabase
+        .from("turquesa_kitchen_ticket_items")
+        .select("ticket_id,item_name,quantity")
+        .in("ticket_id", ticketIds)
+    : { data: [], error: null };
+
+  if (ticketItemsResult.error) throw ticketItemsResult.error;
+  const itemsByTicket = new Map<string, string[]>();
+  (ticketItemsResult.data || []).forEach((item: any) => {
+    const label = `${Number(item.quantity || 1).toFixed(Number(item.quantity || 1) % 1 ? 1 : 0)}x ${item.item_name}`;
+    const list = itemsByTicket.get(item.ticket_id) || [];
+    list.push(label);
+    itemsByTicket.set(item.ticket_id, list);
+  });
+
+  const kitchenTickets: TurquesaKitchenTicket[] = (ticketsResult.data || []).map((ticket: any) => ({
+    id: ticket.ticket_number,
+    table: tableById.get(ticket.table_id)?.code || "-",
+    items: itemsByTicket.get(ticket.id) || [],
+    station: ticket.station || "Mixta",
+    minutes: minutesSince(ticket.fired_at),
+    status: ticket.status === "ready" ? "ready" : ticket.status === "cooking" ? "cooking" : "new",
+  }));
+
+  const openOrdersTotal = Array.from(orders.values()).reduce<number>((sum, order) => sum + num(order.total || order.subtotal), 0);
+  const openingCash = num(shift?.opening_cash);
+  const cashSales = num(shift?.cash_sales);
+  const cardSales = num(shift?.card_sales);
+  const transferSales = num(shift?.transfer_sales);
+  const cashOpen = cashSales + cardSales + transferSales;
+  const expectedCashDrawer = money(shift?.expected_cash_drawer || openingCash + cashSales);
+
+  return {
+    source: "database",
+    message: "Datos cargados desde la base Turquesa.",
+    generatedAt: new Date().toISOString(),
+    restaurant: {
+      id: restaurant.id,
+      name: restaurant.name || "Turquesa Restaurante",
+      location: restaurant.location || "Cadaques Caribe, Bayahibe",
+    },
+    shift: {
+      id: shift?.id || "sin-turno",
+      label: shift?.label || "Sin turno abierto",
+      status: shift?.status || "closed",
+      openedAt: shift?.opened_at || new Date().toISOString(),
+      closedAt: shift?.closed_at || null,
+      projectedSales: cashOpen + openOrdersTotal,
+      cashOpen,
+      openingCash,
+      cashSales,
+      cardSales,
+      transferSales,
+      serviceChargeTotal: num(shift?.service_charge_total),
+      taxTotal: num(shift?.tax_total),
+      tipPool: num(shift?.tip_pool),
+      expectedCashDrawer,
+      countedCash: shift?.counted_cash == null ? null : num(shift.counted_cash),
+      cashDifference: shift?.cash_difference == null ? null : num(shift.cash_difference),
+    },
+    tables,
+    menuItems: (menuResult.data || []).map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      category: item.category_name,
+      price: num(item.price),
+      station: item.station,
+      prep: Number(item.prep_minutes || 0),
+    })),
+    kitchenTickets,
+    reservations: (reservationsResult.data || []).map((item: any) => ({
+      time: timeLabel(item.reservation_at),
+      name: item.guest_name,
+      guests: Number(item.pax || 0),
+      area: tableById.get(item.table_id)?.code || item.source || "Directa",
+      note: item.note || item.status || "",
+    })),
+    inventory: (inventoryResult.data || []).map((item: any) => {
+      const onHand = num(item.on_hand);
+      const min = num(item.minimum_stock);
+      const reorder = num(item.reorder_stock);
+      return {
+        item: item.item_name,
+        onHand,
+        unit: item.unit,
+        min,
+        trend: uiInventoryTrend(onHand, min, reorder),
+        avgCost: num(item.avg_cost),
+        supplier: item.supplier || "Proveedor por definir",
+      };
+    }),
+    recipeIngredients: ((recipeIngredientsResult.data || []) as any[]).map((item): TurquesaRecipeIngredient => ({
+      id: item.id,
+      menuItem: menuById.get(item.menu_item_id)?.name || "Menu",
+      ingredient: inventoryById.get(item.inventory_item_id)?.item_name || "Insumo",
+      qty: num(item.quantity),
+      unit: item.unit || inventoryById.get(item.inventory_item_id)?.unit || "u",
+      note: item.yield_note || "",
+    })),
+    purchaseRequests: ((purchaseRequestsResult.data || []) as any[]).map((request): TurquesaPurchaseRequest => ({
+      id: request.id,
+      code: request.request_code,
+      status: request.status,
+      priority: request.priority || "normal",
+      total: num(request.total_estimated),
+      createdAt: request.requested_at || request.created_at,
+      items: (request.turquesa_purchase_request_items || []).map((item: any) => ({
+        item: item.item_name,
+        qty: num(item.quantity),
+        unit: item.unit || "u",
+        supplier: item.supplier || "Proveedor",
+        estimatedCost: num(item.estimated_cost),
+      })),
+    })),
+    wifiLeads: (leadsResult.data || []).map((lead: any) => ({
+      name: lead.full_name,
+      time: timeLabel(lead.last_seen_at),
+      source: lead.source || "Wi-Fi",
+      status: lead.status || "nuevo",
+    })),
+  };
+}
+
+async function recalcOrderTotals(supabase: any, restaurant: any, orderId: string) {
+  const { data, error } = await supabase
+    .from("turquesa_order_items")
+    .select("line_total")
+    .eq("order_id", orderId)
+    .neq("status", "void");
+
+  if (error) throw error;
+  const subtotal = (data || []).reduce((sum: number, item: any) => sum + num(item.line_total), 0);
+  const service = Math.round(subtotal * num(restaurant.service_charge_rate) * 100) / 100;
+  const tax = Math.round(subtotal * num(restaurant.tax_rate) * 100) / 100;
+  const total = subtotal + service + tax;
+
+  const { error: updateError } = await supabase
+    .from("turquesa_orders")
+    .update({
+      subtotal,
+      service_charge: service,
+      tax,
+      total,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", orderId);
+
+  if (updateError) throw updateError;
+  return { subtotal, service, tax, total };
+}
+
+async function ensureOpenShift(supabase: any, restaurantId: string, actorEmail: string) {
+  const existing = await getOpenShift(supabase, restaurantId);
+  if (existing) return existing;
+
+  const code = new Date().toISOString().slice(0, 10) + "-auto";
+  const { data, error } = await supabase
+    .from("turquesa_shifts")
+    .insert({
+      restaurant_id: restaurantId,
+      shift_code: code,
+      label: "Turno activo",
+      status: "open",
+      opened_by_email: actorEmail,
+    })
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function consumeInventoryForTicket(
+  supabase: any,
+  restaurantId: string,
+  shiftId: string | null,
+  ticket: any,
+  orderItems: any[],
+  actorEmail: string
+) {
+  const menuQty = new Map<string, number>();
+  orderItems.forEach((item) => {
+    const menuItemId = clean(item.menu_item_id);
+    if (!menuItemId) return;
+    menuQty.set(menuItemId, quantity((menuQty.get(menuItemId) || 0) + num(item.quantity)));
+  });
+
+  const menuItemIds = Array.from(menuQty.keys());
+  if (!menuItemIds.length) return [];
+
+  const { data: recipes, error: recipeError } = await supabase
+    .from("turquesa_recipe_ingredients")
+    .select("menu_item_id,inventory_item_id,quantity,unit")
+    .eq("restaurant_id", restaurantId)
+    .eq("is_active", true)
+    .in("menu_item_id", menuItemIds);
+
+  if (recipeError) throw recipeError;
+  if (!recipes?.length) return [];
+
+  const consumptionByInventory = new Map<string, number>();
+  (recipes || []).forEach((recipe: any) => {
+    const inventoryItemId = clean(recipe.inventory_item_id);
+    if (!inventoryItemId) return;
+    const consumed = quantity(num(recipe.quantity) * (menuQty.get(recipe.menu_item_id) || 0));
+    consumptionByInventory.set(inventoryItemId, quantity((consumptionByInventory.get(inventoryItemId) || 0) + consumed));
+  });
+
+  const inventoryIds = Array.from(consumptionByInventory.keys());
+  if (!inventoryIds.length) return [];
+
+  const { data: inventoryRows, error: inventoryError } = await supabase
+    .from("turquesa_inventory_items")
+    .select("id,item_name,on_hand,unit,minimum_stock,reorder_stock")
+    .eq("restaurant_id", restaurantId)
+    .in("id", inventoryIds);
+
+  if (inventoryError) throw inventoryError;
+
+  const inventoryById = new Map<string, any>((inventoryRows || []).map((item: any) => [item.id, item]));
+  const now = new Date().toISOString();
+  const consumedLines: any[] = [];
+
+  for (const [inventoryItemId, consumedQty] of consumptionByInventory.entries()) {
+    const inventory = inventoryById.get(inventoryItemId);
+    if (!inventory) continue;
+
+    const previousOnHand = quantity(inventory.on_hand);
+    const nextOnHand = Math.max(0, quantity(previousOnHand - consumedQty));
+    const shortage = Math.max(0, quantity(consumedQty - previousOnHand));
+
+    const { error: updateError } = await supabase
+      .from("turquesa_inventory_items")
+      .update({
+        on_hand: nextOnHand,
+        updated_by_email: actorEmail,
+        updated_at: now,
+      })
+      .eq("restaurant_id", restaurantId)
+      .eq("id", inventory.id);
+
+    if (updateError) throw updateError;
+
+    consumedLines.push({
+      inventory_item_id: inventory.id,
+      item_name: inventory.item_name,
+      consumed_quantity: consumedQty,
+      previous_on_hand: previousOnHand,
+      next_on_hand: nextOnHand,
+      shortage,
+      unit: inventory.unit,
+    });
+  }
+
+  if (consumedLines.length) {
+    await supabase.from("turquesa_events").insert({
+      restaurant_id: restaurantId,
+      shift_id: shiftId,
+      entity_type: "turquesa_kitchen_tickets",
+      entity_id: ticket.id,
+      event_type: "inventory_consumed_by_ticket",
+      actor_email: actorEmail,
+      description: `${ticket.ticket_number}: inventario descontado por ${consumedLines.length} insumo(s).`,
+      payload: {
+        ticket_number: ticket.ticket_number,
+        consumed_items: consumedLines,
+      },
+    });
+  }
+
+  return consumedLines;
+}
+
+function consumptionMessage(lines: any[]) {
+  if (!lines.length) return "";
+  const visible = lines
+    .slice(0, 3)
+    .map((line) => `${line.item_name} -${quantityLabel(num(line.consumed_quantity))} ${line.unit || ""}`.trim())
+    .join(", ");
+  const extra = lines.length > 3 ? ` y ${lines.length - 3} mas` : "";
+  const shortage = lines.some((line) => num(line.shortage) > 0) ? " Hay consumo sobre stock disponible." : "";
+  return ` Inventario descontado: ${visible}${extra}.${shortage}`;
+}
+
+async function sendToKitchen(body: OperationBody, context: DbContext) {
+  const tableLabel = clean(body?.tableLabel);
+  const lines = Array.isArray(body?.items) ? (body.items as TurquesaOrderItem[]) : [];
+
+  if (!tableLabel) return NextResponse.json({ ok: false, error: "Mesa requerida." }, { status: 400 });
+  if (!lines.length) return NextResponse.json({ ok: false, error: "La comanda esta vacia." }, { status: 400 });
+
+  const restaurant = await getRestaurant(context.supabase);
+  if (!restaurant) return NextResponse.json({ ok: false, error: "Ejecuta primero scripts/turquesa-restaurant-core.sql." }, { status: 503 });
+  const shift = await ensureOpenShift(context.supabase, restaurant.id, context.actorEmail);
+
+  const { data: table, error: tableError } = await context.supabase
+    .from("turquesa_tables")
+    .select("*")
+    .eq("restaurant_id", restaurant.id)
+    .eq("code", tableLabel)
+    .maybeSingle();
+
+  if (tableError) throw tableError;
+  if (!table) return NextResponse.json({ ok: false, error: "Mesa no encontrada." }, { status: 404 });
+
+  let order: any = null;
+  if (table.current_order_id) {
+    const { data, error } = await context.supabase
+      .from("turquesa_orders")
+      .select("*")
+      .eq("id", table.current_order_id)
+      .in("status", ["open", "sent", "ready"])
+      .maybeSingle();
+    if (error) throw error;
+    order = data;
+  }
+
+  if (!order) {
+    const orderNumber = `TRQ-${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}-${table.code}`;
+    const { data, error } = await context.supabase
+      .from("turquesa_orders")
+      .insert({
+        restaurant_id: restaurant.id,
+        shift_id: shift.id,
+        table_id: table.id,
+        order_number: orderNumber,
+        status: "open",
+        server_name: clean(body?.serverName) || table.current_server_name || "Servicio",
+        pax: Number(table.seats || 1),
+        created_by_email: context.actorEmail,
+      })
+      .select("*")
+      .single();
+    if (error) throw error;
+    order = data;
+  }
+
+  const menuNames = lines.map((line) => clean(line.name)).filter(Boolean);
+  const { data: menuRows, error: menuError } = await context.supabase
+    .from("turquesa_menu_items")
+    .select("id,name,station,price")
+    .eq("restaurant_id", restaurant.id)
+    .in("name", menuNames.length ? menuNames : [""]);
+
+  if (menuError) throw menuError;
+  const menuRowsData = (menuRows || []) as DbMenuRow[];
+  const menuByName = new Map<string, DbMenuRow>(menuRowsData.map((item) => [item.name, item]));
+
+  const itemRows = lines.map((line) => {
+    const menuItem = menuByName.get(line.name);
+    const qty = Math.max(1, Number(line.qty || 1));
+    return {
+      restaurant_id: restaurant.id,
+      order_id: order.id,
+      menu_item_id: menuItem?.id || null,
+      item_name: line.name,
+      station: menuItem?.station || line.station || "Mixta",
+      quantity: qty,
+      unit_price: num(menuItem?.price || line.price),
+      status: "sent",
+    };
+  });
+
+  const { data: insertedItems, error: itemsError } = await context.supabase
+    .from("turquesa_order_items")
+    .insert(itemRows)
+    .select("*");
+
+  if (itemsError) throw itemsError;
+  await recalcOrderTotals(context.supabase, restaurant, order.id);
+
+  const ticketNumber = `K-${String(Date.now()).slice(-6)}`;
+  const stations = Array.from(new Set(itemRows.map((item) => item.station).filter(Boolean)));
+  const { data: ticket, error: ticketError } = await context.supabase
+    .from("turquesa_kitchen_tickets")
+    .insert({
+      restaurant_id: restaurant.id,
+      shift_id: shift.id,
+      order_id: order.id,
+      table_id: table.id,
+      ticket_number: ticketNumber,
+      station: stations.length === 1 ? stations[0] : "Mixta",
+      status: "new",
+      server_name: order.server_name,
+    })
+    .select("*")
+    .single();
+
+  if (ticketError) throw ticketError;
+
+  const ticketItemRows = (insertedItems || []).map((item: any) => ({
+    restaurant_id: restaurant.id,
+    ticket_id: ticket.id,
+    order_item_id: item.id,
+    item_name: item.item_name,
+    quantity: item.quantity,
+    station: item.station,
+  }));
+
+  if (ticketItemRows.length) {
+    const { error } = await context.supabase.from("turquesa_kitchen_ticket_items").insert(ticketItemRows);
+    if (error) throw error;
+  }
+
+  let consumedLines: any[] = [];
+  let consumptionWarning = "";
+  try {
+    consumedLines = await consumeInventoryForTicket(
+      context.supabase,
+      restaurant.id,
+      shift.id,
+      ticket,
+      insertedItems || [],
+      context.actorEmail
+    );
+  } catch (error) {
+    consumptionWarning = ` Inventario automatico pendiente: ${publicErrorMessage(error)}.`;
+  }
+
+  const { error: tableUpdateError } = await context.supabase
+    .from("turquesa_tables")
+    .update({
+      status: table.status === "free" ? "open" : table.status,
+      current_order_id: order.id,
+      current_server_name: order.server_name,
+      current_started_at: table.current_started_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", table.id);
+
+  if (tableUpdateError) throw tableUpdateError;
+
+  return NextResponse.json({
+    ok: true,
+    message: `Comanda ${ticketNumber} enviada a cocina.${consumptionMessage(consumedLines)}${consumptionWarning}`,
+    snapshot: await readSnapshot(context.supabase),
+  });
+}
+
+async function advanceTicket(body: OperationBody, context: DbContext) {
+  const ticketId = clean(body?.ticketId);
+  if (!ticketId) return NextResponse.json({ ok: false, error: "Ticket requerido." }, { status: 400 });
+
+  const restaurant = await getRestaurant(context.supabase);
+  if (!restaurant) return NextResponse.json({ ok: false, error: "Ejecuta primero scripts/turquesa-restaurant-core.sql." }, { status: 503 });
+
+  const { data: ticket, error } = await context.supabase
+    .from("turquesa_kitchen_tickets")
+    .select("*")
+    .eq("restaurant_id", restaurant.id)
+    .eq("ticket_number", ticketId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!ticket) return NextResponse.json({ ok: false, error: "Ticket no encontrado." }, { status: 404 });
+
+  const nextStatus =
+    ticket.status === "new" ? "cooking" :
+    ticket.status === "cooking" ? "ready" :
+    ticket.status === "ready" ? "served" :
+    ticket.status;
+
+  const patch: Record<string, unknown> = {
+    status: nextStatus,
+    updated_at: new Date().toISOString(),
+  };
+  if (nextStatus === "cooking") patch.cooking_at = new Date().toISOString();
+  if (nextStatus === "ready") patch.ready_at = new Date().toISOString();
+  if (nextStatus === "served") patch.served_at = new Date().toISOString();
+
+  const { error: updateError } = await context.supabase
+    .from("turquesa_kitchen_tickets")
+    .update(patch)
+    .eq("id", ticket.id);
+
+  if (updateError) throw updateError;
+
+  return NextResponse.json({
+    ok: true,
+    message: `Ticket ${ticketId} actualizado.`,
+    snapshot: await readSnapshot(context.supabase),
+  });
+}
+
+async function closeOrder(body: OperationBody, context: DbContext) {
+  const tableLabel = clean(body?.tableLabel);
+  const method = normalizePaymentMethod(body?.method);
+  const requestedAmount = num(body?.amount);
+
+  if (!tableLabel) return NextResponse.json({ ok: false, error: "Mesa requerida." }, { status: 400 });
+
+  const restaurant = await getRestaurant(context.supabase);
+  if (!restaurant) return NextResponse.json({ ok: false, error: "Ejecuta primero scripts/turquesa-restaurant-core.sql." }, { status: 503 });
+  const openShift = await ensureOpenShift(context.supabase, restaurant.id, context.actorEmail);
+
+  const { data: table, error: tableError } = await context.supabase
+    .from("turquesa_tables")
+    .select("id,code,status,current_order_id")
+    .eq("restaurant_id", restaurant.id)
+    .eq("code", tableLabel)
+    .maybeSingle();
+
+  if (tableError) throw tableError;
+  if (!table) return NextResponse.json({ ok: false, error: "Mesa no encontrada." }, { status: 404 });
+  if (!table.current_order_id) return NextResponse.json({ ok: false, error: "La mesa no tiene una orden abierta." }, { status: 400 });
+
+  const { data: order, error: orderError } = await context.supabase
+    .from("turquesa_orders")
+    .select("*")
+    .eq("restaurant_id", restaurant.id)
+    .eq("id", table.current_order_id)
+    .maybeSingle();
+
+  if (orderError) throw orderError;
+  if (!order) return NextResponse.json({ ok: false, error: "Orden no encontrada." }, { status: 404 });
+  if (order.status === "paid") return NextResponse.json({ ok: false, error: "La orden ya esta pagada." }, { status: 400 });
+
+  const totals = await recalcOrderTotals(context.supabase, restaurant, order.id);
+  const previousPaid = num(order.paid_total);
+  const due = Math.max(0, totals.total - previousPaid);
+  const amount = requestedAmount > 0 ? Math.min(requestedAmount, due || requestedAmount) : due;
+
+  if (amount <= 0) return NextResponse.json({ ok: false, error: "No hay balance pendiente para cobrar." }, { status: 400 });
+
+  const shiftId = order.shift_id || openShift.id;
+  const { data: shift, error: shiftError } = await context.supabase
+    .from("turquesa_shifts")
+    .select("*")
+    .eq("id", shiftId)
+    .maybeSingle();
+
+  if (shiftError) throw shiftError;
+
+  const { error: paymentError } = await context.supabase
+    .from("turquesa_payments")
+    .insert({
+      restaurant_id: restaurant.id,
+      shift_id: shiftId,
+      order_id: order.id,
+      method,
+      amount,
+      received_by_email: context.actorEmail,
+    });
+
+  if (paymentError) throw paymentError;
+
+  const paidTotal = previousPaid + amount;
+  const fullyPaid = paidTotal + 0.01 >= totals.total;
+  const now = new Date().toISOString();
+
+  const { error: orderUpdateError } = await context.supabase
+    .from("turquesa_orders")
+    .update({
+      paid_total: paidTotal,
+      status: fullyPaid ? "paid" : order.status,
+      closed_at: fullyPaid ? now : order.closed_at,
+      updated_at: now,
+    })
+    .eq("id", order.id);
+
+  if (orderUpdateError) throw orderUpdateError;
+
+  const salesColumn = shiftSalesColumn(method);
+  const shiftPatch: Record<string, unknown> = {
+    [salesColumn]: num(shift?.[salesColumn]) + amount,
+    updated_at: now,
+  };
+
+  const { error: shiftUpdateError } = await context.supabase
+    .from("turquesa_shifts")
+    .update(shiftPatch)
+    .eq("id", shiftId);
+
+  if (shiftUpdateError) throw shiftUpdateError;
+
+  if (fullyPaid) {
+    const [{ error: tableUpdateError }, { error: itemsUpdateError }, { error: ticketUpdateError }] = await Promise.all([
+      context.supabase
+        .from("turquesa_tables")
+        .update({
+          status: "free",
+          current_order_id: null,
+          current_server_name: "Libre",
+          current_started_at: null,
+          updated_at: now,
+        })
+        .eq("id", table.id),
+      context.supabase
+        .from("turquesa_order_items")
+        .update({ status: "served", updated_at: now })
+        .eq("order_id", order.id)
+        .neq("status", "void"),
+      context.supabase
+        .from("turquesa_kitchen_tickets")
+        .update({ status: "served", served_at: now, updated_at: now })
+        .eq("order_id", order.id)
+        .in("status", ["new", "cooking", "ready"]),
+    ]);
+
+    if (tableUpdateError) throw tableUpdateError;
+    if (itemsUpdateError) throw itemsUpdateError;
+    if (ticketUpdateError) throw ticketUpdateError;
+  }
+
+  return NextResponse.json({
+    ok: true,
+    message: fullyPaid
+      ? `Pago por ${paymentMethodLabel(method)} registrado y mesa ${table.code} liberada.`
+      : `Pago parcial por ${paymentMethodLabel(method)} registrado en ${table.code}.`,
+    snapshot: await readSnapshot(context.supabase),
+  });
+}
+
+async function createReservation(body: OperationBody, context: DbContext) {
+  const guestName = clean(body?.guestName);
+  const pax = Math.max(1, Math.min(50, Number(body?.pax || 2)));
+  const note = clean(body?.note);
+  const phone = clean(body?.phone);
+  const email = clean(body?.email);
+  const tableLabel = clean(body?.tableLabel);
+  const reservationAt = reservationIso(body?.date, body?.time);
+
+  if (!guestName) return NextResponse.json({ ok: false, error: "Nombre de reserva requerido." }, { status: 400 });
+
+  const restaurant = await getRestaurant(context.supabase);
+  if (!restaurant) return NextResponse.json({ ok: false, error: "Ejecuta primero scripts/turquesa-restaurant-core.sql." }, { status: 503 });
+
+  let tableId = null;
+  if (tableLabel) {
+    const { data: table, error: tableError } = await context.supabase
+      .from("turquesa_tables")
+      .select("id")
+      .eq("restaurant_id", restaurant.id)
+      .eq("code", tableLabel)
+      .maybeSingle();
+    if (tableError) throw tableError;
+    tableId = table?.id || null;
+  }
+
+  const { error } = await context.supabase
+    .from("turquesa_reservations")
+    .insert({
+      restaurant_id: restaurant.id,
+      table_id: tableId,
+      reservation_at: reservationAt,
+      guest_name: guestName,
+      phone: phone || null,
+      email: email || null,
+      pax,
+      source: clean(body?.source) || "Turquesa OS",
+      status: "confirmed",
+      note: note || null,
+    });
+
+  if (error) throw error;
+
+  return NextResponse.json({
+    ok: true,
+    message: `Reserva creada para ${guestName}.`,
+    snapshot: await readSnapshot(context.supabase),
+  });
+}
+
+async function adjustInventory(body: OperationBody, context: DbContext) {
+  const itemName = clean(body?.itemName);
+  const delta = Number(body?.delta || 0);
+  const reason = clean(body?.reason) || "Ajuste rapido";
+
+  if (!itemName) return NextResponse.json({ ok: false, error: "Item de inventario requerido." }, { status: 400 });
+  if (!Number.isFinite(delta) || delta === 0) return NextResponse.json({ ok: false, error: "Cantidad de ajuste invalida." }, { status: 400 });
+
+  const restaurant = await getRestaurant(context.supabase);
+  if (!restaurant) return NextResponse.json({ ok: false, error: "Ejecuta primero scripts/turquesa-restaurant-core.sql." }, { status: 503 });
+
+  const { data: item, error: itemError } = await context.supabase
+    .from("turquesa_inventory_items")
+    .select("*")
+    .eq("restaurant_id", restaurant.id)
+    .eq("item_name", itemName)
+    .maybeSingle();
+
+  if (itemError) throw itemError;
+  if (!item) return NextResponse.json({ ok: false, error: "Item de inventario no encontrado." }, { status: 404 });
+
+  const nextOnHand = Math.max(0, Math.round((num(item.on_hand) + delta) * 1000) / 1000);
+  const now = new Date().toISOString();
+
+  const { error: updateError } = await context.supabase
+    .from("turquesa_inventory_items")
+    .update({
+      on_hand: nextOnHand,
+      updated_by_email: context.actorEmail,
+      updated_at: now,
+    })
+    .eq("id", item.id);
+
+  if (updateError) throw updateError;
+
+  await context.supabase.from("turquesa_events").insert({
+    restaurant_id: restaurant.id,
+    entity_type: "turquesa_inventory_items",
+    entity_id: item.id,
+    event_type: "inventory_adjusted",
+    actor_email: context.actorEmail,
+    description: `${itemName}: ajuste ${delta > 0 ? "+" : ""}${delta}. ${reason}`,
+    payload: {
+      item_name: itemName,
+      previous_on_hand: num(item.on_hand),
+      next_on_hand: nextOnHand,
+      delta,
+      reason,
+    },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    message: `${itemName} ajustado a ${nextOnHand} ${item.unit || ""}.`.trim(),
+    snapshot: await readSnapshot(context.supabase),
+  });
+}
+
+async function updateInventoryCost(body: OperationBody, context: DbContext) {
+  const itemName = clean(body?.itemName);
+  const avgCost = money(body?.avgCost);
+  const supplier = clean(body?.supplier) || "Proveedor por definir";
+
+  if (!itemName) return NextResponse.json({ ok: false, error: "Item de inventario requerido." }, { status: 400 });
+  if (!Number.isFinite(avgCost) || avgCost < 0) return NextResponse.json({ ok: false, error: "Costo promedio invalido." }, { status: 400 });
+
+  const restaurant = await getRestaurant(context.supabase);
+  if (!restaurant) return NextResponse.json({ ok: false, error: "Ejecuta primero scripts/turquesa-restaurant-core.sql." }, { status: 503 });
+
+  const { data: item, error: itemError } = await context.supabase
+    .from("turquesa_inventory_items")
+    .select("id,item_name,unit,avg_cost,supplier")
+    .eq("restaurant_id", restaurant.id)
+    .eq("item_name", itemName)
+    .maybeSingle();
+
+  if (itemError) throw itemError;
+  if (!item) return NextResponse.json({ ok: false, error: "Item de inventario no encontrado." }, { status: 404 });
+
+  const now = new Date().toISOString();
+  const { error: updateError } = await context.supabase
+    .from("turquesa_inventory_items")
+    .update({
+      avg_cost: avgCost,
+      supplier,
+      updated_by_email: context.actorEmail,
+      updated_at: now,
+    })
+    .eq("id", item.id);
+
+  if (updateError) throw updateError;
+
+  await context.supabase.from("turquesa_events").insert({
+    restaurant_id: restaurant.id,
+    entity_type: "turquesa_inventory_items",
+    entity_id: item.id,
+    event_type: "inventory_cost_updated",
+    actor_email: context.actorEmail,
+    description: `${itemName}: costo promedio actualizado a ${avgCost}.`,
+    payload: {
+      item_name: itemName,
+      previous_avg_cost: num(item.avg_cost),
+      next_avg_cost: avgCost,
+      previous_supplier: item.supplier || null,
+      next_supplier: supplier,
+    },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    message: `Costo ${itemName} actualizado a ${avgCost} por ${item.unit || "u"}.`,
+    snapshot: await readSnapshot(context.supabase),
+  });
+}
+
+async function createPurchaseRequest(body: OperationBody, context: DbContext) {
+  const reason = clean(body?.reason) || "Compra sugerida desde inventario bajo";
+  const restaurant = await getRestaurant(context.supabase);
+  if (!restaurant) return NextResponse.json({ ok: false, error: "Ejecuta primero scripts/turquesa-restaurant-core.sql." }, { status: 503 });
+
+  const { data: inventoryRows, error: inventoryError } = await context.supabase
+    .from("turquesa_inventory_items")
+    .select("id,item_name,unit,on_hand,minimum_stock,reorder_stock,avg_cost,supplier")
+    .eq("restaurant_id", restaurant.id)
+    .eq("is_active", true)
+    .order("item_name", { ascending: true });
+
+  if (inventoryError) throw inventoryError;
+
+  const suggestedItems = (inventoryRows || [])
+    .map((item: any) => {
+      const onHand = num(item.on_hand);
+      const min = num(item.minimum_stock);
+      const reorder = num(item.reorder_stock) || min * 2;
+      const shouldBuy = onHand < min || (reorder > 0 && onHand <= reorder);
+      const qty = Math.max(0, Math.ceil(Math.max(reorder - onHand, min - onHand, 0)));
+      const estimatedCost = money(qty * num(item.avg_cost));
+
+      return {
+        item,
+        shouldBuy,
+        qty,
+        estimatedCost,
+      };
+    })
+    .filter((row: any) => row.shouldBuy && row.qty > 0);
+
+  if (!suggestedItems.length) {
+    return NextResponse.json({ ok: false, error: "Inventario estable. No hay compra sugerida." }, { status: 400 });
+  }
+
+  const shift = await getOpenShift(context.supabase, restaurant.id);
+  const requestCode = `COMP-${new Date().toISOString().replace(/\D/g, "").slice(2, 12)}-${String(Date.now()).slice(-4)}`;
+  const totalEstimated = money(suggestedItems.reduce((sum: number, row: any) => sum + row.estimatedCost, 0));
+  const priority = suggestedItems.some((row: any) => num(row.item.on_hand) < num(row.item.minimum_stock)) ? "urgent" : "normal";
+
+  const { data: purchaseRequest, error: requestError } = await context.supabase
+    .from("turquesa_purchase_requests")
+    .insert({
+      restaurant_id: restaurant.id,
+      shift_id: shift?.id || null,
+      request_code: requestCode,
+      status: "draft",
+      priority,
+      reason,
+      total_estimated: totalEstimated,
+      requested_by_email: context.actorEmail,
+    })
+    .select("*")
+    .single();
+
+  if (requestError) throw requestError;
+
+  const itemRows = suggestedItems.map((row: any) => ({
+    restaurant_id: restaurant.id,
+    purchase_request_id: purchaseRequest.id,
+    inventory_item_id: row.item.id,
+    item_name: row.item.item_name,
+    quantity: row.qty,
+    unit: row.item.unit || "u",
+    supplier: row.item.supplier || "Proveedor por definir",
+    estimated_unit_cost: num(row.item.avg_cost),
+    estimated_cost: row.estimatedCost,
+    notes: num(row.item.on_hand) < num(row.item.minimum_stock) ? "Stock critico" : "Reposicion sugerida",
+  }));
+
+  const { error: itemsError } = await context.supabase.from("turquesa_purchase_request_items").insert(itemRows);
+  if (itemsError) throw itemsError;
+
+  await context.supabase.from("turquesa_events").insert({
+    restaurant_id: restaurant.id,
+    shift_id: shift?.id || null,
+    entity_type: "turquesa_purchase_requests",
+    entity_id: purchaseRequest.id,
+    event_type: "purchase_request_created",
+    actor_email: context.actorEmail,
+    description: `${requestCode}: compra sugerida por ${itemRows.length} item(s).`,
+    payload: {
+      request_code: requestCode,
+      priority,
+      reason,
+      total_estimated: totalEstimated,
+      items: itemRows.map((item: any) => ({
+        item_name: item.item_name,
+        quantity: item.quantity,
+        unit: item.unit,
+        supplier: item.supplier,
+        estimated_cost: item.estimated_cost,
+      })),
+    },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    message: `${requestCode} preparada con ${itemRows.length} item(s).`,
+    snapshot: await readSnapshot(context.supabase),
+  });
+}
+
+async function updateRecipeIngredient(body: OperationBody, context: DbContext) {
+  const recipeId = clean(body?.recipeId);
+  const menuItemName = clean(body?.menuItemName);
+  const ingredientName = clean(body?.ingredientName);
+  const nextQuantity = quantity(body?.quantity);
+
+  if (!Number.isFinite(nextQuantity) || nextQuantity <= 0) {
+    return NextResponse.json({ ok: false, error: "Cantidad de receta invalida." }, { status: 400 });
+  }
+
+  const restaurant = await getRestaurant(context.supabase);
+  if (!restaurant) return NextResponse.json({ ok: false, error: "Ejecuta primero scripts/turquesa-restaurant-core.sql." }, { status: 503 });
+
+  let recipe: any = null;
+  const shouldUseId = recipeId && !recipeId.startsWith("REC-DEMO-") && /^[0-9a-f-]{32,36}$/i.test(recipeId);
+
+  if (shouldUseId) {
+    const { data, error } = await context.supabase
+      .from("turquesa_recipe_ingredients")
+      .select("*")
+      .eq("restaurant_id", restaurant.id)
+      .eq("id", recipeId)
+      .maybeSingle();
+
+    if (error) throw error;
+    recipe = data;
+  }
+
+  if (!recipe && menuItemName && ingredientName) {
+    const [menuResult, inventoryResult] = await Promise.all([
+      context.supabase
+        .from("turquesa_menu_items")
+        .select("id,name")
+        .eq("restaurant_id", restaurant.id)
+        .eq("name", menuItemName)
+        .maybeSingle(),
+      context.supabase
+        .from("turquesa_inventory_items")
+        .select("id,item_name,unit")
+        .eq("restaurant_id", restaurant.id)
+        .eq("item_name", ingredientName)
+        .maybeSingle(),
+    ]);
+
+    if (menuResult.error) throw menuResult.error;
+    if (inventoryResult.error) throw inventoryResult.error;
+    if (!menuResult.data || !inventoryResult.data) {
+      return NextResponse.json({ ok: false, error: "Menu o insumo de receta no encontrado." }, { status: 404 });
+    }
+
+    const { data, error } = await context.supabase
+      .from("turquesa_recipe_ingredients")
+      .select("*")
+      .eq("restaurant_id", restaurant.id)
+      .eq("menu_item_id", menuResult.data.id)
+      .eq("inventory_item_id", inventoryResult.data.id)
+      .maybeSingle();
+
+    if (error) throw error;
+    recipe = data;
+  }
+
+  if (!recipe) return NextResponse.json({ ok: false, error: "Receta no encontrada." }, { status: 404 });
+
+  const previousQuantity = quantity(recipe.quantity);
+  const now = new Date().toISOString();
+  const { error: updateError } = await context.supabase
+    .from("turquesa_recipe_ingredients")
+    .update({
+      quantity: nextQuantity,
+      updated_at: now,
+    })
+    .eq("restaurant_id", restaurant.id)
+    .eq("id", recipe.id);
+
+  if (updateError) throw updateError;
+
+  await context.supabase.from("turquesa_events").insert({
+    restaurant_id: restaurant.id,
+    entity_type: "turquesa_recipe_ingredients",
+    entity_id: recipe.id,
+    event_type: "recipe_ingredient_updated",
+    actor_email: context.actorEmail,
+    description: `${menuItemName || "Receta"} / ${ingredientName || "Insumo"} ajustado a ${quantityLabel(nextQuantity)} ${recipe.unit || ""}.`.trim(),
+    payload: {
+      recipe_id: recipe.id,
+      menu_item_name: menuItemName,
+      ingredient_name: ingredientName,
+      previous_quantity: previousQuantity,
+      next_quantity: nextQuantity,
+      unit: recipe.unit,
+    },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    message: `Receta ${menuItemName || ""} actualizada a ${quantityLabel(nextQuantity)} ${recipe.unit || ""}.`.trim(),
+    snapshot: await readSnapshot(context.supabase),
+  });
+}
+
+async function receivePurchaseRequest(body: OperationBody, context: DbContext) {
+  const requestId = clean(body?.requestId);
+  const requestCode = clean(body?.requestCode);
+  const notes = clean(body?.notes);
+
+  if (!requestId && !requestCode) {
+    return NextResponse.json({ ok: false, error: "Solicitud de compra requerida." }, { status: 400 });
+  }
+
+  const restaurant = await getRestaurant(context.supabase);
+  if (!restaurant) return NextResponse.json({ ok: false, error: "Ejecuta primero scripts/turquesa-restaurant-core.sql." }, { status: 503 });
+
+  const shouldUseId = requestId && !requestId.startsWith("local-") && /^[0-9a-f-]{32,36}$/i.test(requestId);
+  let requestQuery = context.supabase
+    .from("turquesa_purchase_requests")
+    .select("*")
+    .eq("restaurant_id", restaurant.id);
+
+  requestQuery = shouldUseId ? requestQuery.eq("id", requestId) : requestQuery.eq("request_code", requestCode);
+
+  const { data: purchaseRequest, error: requestError } = await requestQuery.maybeSingle();
+  if (requestError) throw requestError;
+  if (!purchaseRequest) return NextResponse.json({ ok: false, error: "Solicitud de compra no encontrada." }, { status: 404 });
+  if (purchaseRequest.status === "received") {
+    return NextResponse.json({ ok: false, error: `${purchaseRequest.request_code} ya fue recibida.` }, { status: 409 });
+  }
+  if (purchaseRequest.status === "cancelled") {
+    return NextResponse.json({ ok: false, error: `${purchaseRequest.request_code} esta cancelada.` }, { status: 409 });
+  }
+
+  const { data: requestItems, error: itemsError } = await context.supabase
+    .from("turquesa_purchase_request_items")
+    .select("id,inventory_item_id,item_name,quantity,unit,received_quantity")
+    .eq("restaurant_id", restaurant.id)
+    .eq("purchase_request_id", purchaseRequest.id)
+    .order("created_at", { ascending: true });
+
+  if (itemsError) throw itemsError;
+  if (!requestItems?.length) {
+    return NextResponse.json({ ok: false, error: "La solicitud no tiene items para recibir." }, { status: 400 });
+  }
+
+  const inventoryIds = Array.from(new Set(requestItems.map((item: any) => clean(item.inventory_item_id)).filter(Boolean)));
+  const inventoryNames = Array.from(new Set(requestItems.map((item: any) => clean(item.item_name)).filter(Boolean)));
+  const [inventoryByIdResult, inventoryByNameResult] = await Promise.all([
+    inventoryIds.length
+      ? context.supabase
+          .from("turquesa_inventory_items")
+          .select("id,item_name,on_hand,unit")
+          .eq("restaurant_id", restaurant.id)
+          .in("id", inventoryIds)
+      : Promise.resolve({ data: [], error: null }),
+    inventoryNames.length
+      ? context.supabase
+          .from("turquesa_inventory_items")
+          .select("id,item_name,on_hand,unit")
+          .eq("restaurant_id", restaurant.id)
+          .in("item_name", inventoryNames)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (inventoryByIdResult.error) throw inventoryByIdResult.error;
+  if (inventoryByNameResult.error) throw inventoryByNameResult.error;
+
+  const inventoryById = new Map<string, any>((inventoryByIdResult.data || []).map((item: any) => [item.id, item]));
+  const inventoryByName = new Map<string, any>(
+    (inventoryByNameResult.data || []).map((item: any) => [String(item.item_name || "").toLowerCase(), item])
+  );
+  const receipts = new Map<string, { inventory: any; quantity: number; lines: any[] }>();
+
+  for (const item of requestItems) {
+    const inventoryItem =
+      (item.inventory_item_id ? inventoryById.get(item.inventory_item_id) : null) ||
+      inventoryByName.get(String(item.item_name || "").toLowerCase());
+
+    if (!inventoryItem) {
+      return NextResponse.json({ ok: false, error: `Inventario no encontrado para ${item.item_name}.` }, { status: 409 });
+    }
+
+    const current = receipts.get(inventoryItem.id) || { inventory: inventoryItem, quantity: 0, lines: [] };
+    current.quantity += num(item.quantity);
+    current.lines.push(item);
+    receipts.set(inventoryItem.id, current);
+  }
+
+  const now = new Date().toISOString();
+  const receivedItems: any[] = [];
+
+  for (const receipt of receipts.values()) {
+    const nextOnHand = Math.max(0, Math.round((num(receipt.inventory.on_hand) + receipt.quantity) * 1000) / 1000);
+    const { error: inventoryError } = await context.supabase
+      .from("turquesa_inventory_items")
+      .update({
+        on_hand: nextOnHand,
+        updated_by_email: context.actorEmail,
+        updated_at: now,
+      })
+      .eq("restaurant_id", restaurant.id)
+      .eq("id", receipt.inventory.id);
+
+    if (inventoryError) throw inventoryError;
+
+    receivedItems.push({
+      item_name: receipt.inventory.item_name,
+      quantity: receipt.quantity,
+      previous_on_hand: num(receipt.inventory.on_hand),
+      next_on_hand: nextOnHand,
+      unit: receipt.inventory.unit,
+    });
+  }
+
+  for (const item of requestItems) {
+    const { error: itemUpdateError } = await context.supabase
+      .from("turquesa_purchase_request_items")
+      .update({
+        received_quantity: num(item.quantity),
+        updated_at: now,
+      })
+      .eq("id", item.id);
+
+    if (itemUpdateError) throw itemUpdateError;
+  }
+
+  const { error: requestUpdateError } = await context.supabase
+    .from("turquesa_purchase_requests")
+    .update({
+      status: "received",
+      received_at: now,
+      notes: notes || purchaseRequest.notes,
+      updated_at: now,
+    })
+    .eq("id", purchaseRequest.id);
+
+  if (requestUpdateError) throw requestUpdateError;
+
+  await context.supabase.from("turquesa_events").insert({
+    restaurant_id: restaurant.id,
+    shift_id: purchaseRequest.shift_id || null,
+    entity_type: "turquesa_purchase_requests",
+    entity_id: purchaseRequest.id,
+    event_type: "purchase_request_received",
+    actor_email: context.actorEmail,
+    description: `${purchaseRequest.request_code}: compra recibida e inventario actualizado.`,
+    payload: {
+      request_code: purchaseRequest.request_code,
+      notes,
+      received_items: receivedItems,
+    },
+  });
+
+  return NextResponse.json({
+    ok: true,
+    message: `${purchaseRequest.request_code} recibida. Inventario actualizado.`,
+    snapshot: await readSnapshot(context.supabase),
+  });
+}
+
+async function updateWifiLead(body: OperationBody, context: DbContext) {
+  const fullName = clean(body?.fullName);
+  const status = normalizeWifiLeadStatus(body?.status);
+
+  if (!fullName) return NextResponse.json({ ok: false, error: "Cliente Wi-Fi requerido." }, { status: 400 });
+
+  const restaurant = await getRestaurant(context.supabase);
+  if (!restaurant) return NextResponse.json({ ok: false, error: "Ejecuta primero scripts/turquesa-restaurant-core.sql." }, { status: 503 });
+
+  const { data, error } = await context.supabase
+    .from("turquesa_wifi_leads")
+    .update({
+      status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("restaurant_id", restaurant.id)
+    .eq("full_name", fullName)
+    .select("id")
+    .limit(1);
+
+  if (error) throw error;
+  if (!data?.length) return NextResponse.json({ ok: false, error: "Cliente Wi-Fi no encontrado." }, { status: 404 });
+
+  return NextResponse.json({
+    ok: true,
+    message: `${fullName} marcado como ${status}.`,
+    snapshot: await readSnapshot(context.supabase),
+  });
+}
+
+async function closeShift(body: OperationBody, context: DbContext) {
+  const countedCash = money(body?.countedCash);
+  const notes = clean(body?.notes);
+
+  if (!Number.isFinite(countedCash) || countedCash < 0) {
+    return NextResponse.json({ ok: false, error: "Efectivo contado invalido." }, { status: 400 });
+  }
+
+  const restaurant = await getRestaurant(context.supabase);
+  if (!restaurant) return NextResponse.json({ ok: false, error: "Ejecuta primero scripts/turquesa-restaurant-core.sql." }, { status: 503 });
+
+  const shift = await getOpenShift(context.supabase, restaurant.id);
+  if (!shift) return NextResponse.json({ ok: false, error: "No hay turno abierto para cerrar." }, { status: 400 });
+
+  const [openOrdersResult, openTablesResult, paymentsResult] = await Promise.all([
+    context.supabase
+      .from("turquesa_orders")
+      .select("id,order_number,total,status")
+      .eq("restaurant_id", restaurant.id)
+      .eq("shift_id", shift.id)
+      .in("status", ["open", "sent", "ready"])
+      .limit(20),
+    context.supabase
+      .from("turquesa_tables")
+      .select("id,code,status,current_order_id")
+      .eq("restaurant_id", restaurant.id)
+      .or("status.in.(open,attention),current_order_id.not.is.null")
+      .limit(20),
+    context.supabase
+      .from("turquesa_payments")
+      .select("method,amount")
+      .eq("restaurant_id", restaurant.id)
+      .eq("shift_id", shift.id),
+  ]);
+
+  if (openOrdersResult.error) throw openOrdersResult.error;
+  if (openTablesResult.error) throw openTablesResult.error;
+  if (paymentsResult.error) throw paymentsResult.error;
+
+  const openOrders = openOrdersResult.data || [];
+  const openTables = openTablesResult.data || [];
+  if (openOrders.length || openTables.length) {
+    const tableList = openTables.map((table: any) => table.code).filter(Boolean).join(", ");
+    return NextResponse.json(
+      {
+        ok: false,
+        error: tableList
+          ? `No se puede cerrar: mesas abiertas ${tableList}.`
+          : "No se puede cerrar: hay ordenes abiertas.",
+      },
+      { status: 409 }
+    );
+  }
+
+  const totals = (paymentsResult.data || []).reduce(
+    (acc: Record<PaymentMethod, number>, payment: any) => {
+      const method = normalizePaymentMethod(payment.method);
+      acc[method] += num(payment.amount);
+      return acc;
+    },
+    { cash: 0, card: 0, transfer: 0 }
+  );
+  const cashSales = money(totals.cash || shift.cash_sales);
+  const cardSales = money(totals.card || shift.card_sales);
+  const transferSales = money(totals.transfer || shift.transfer_sales);
+  const openingCash = money(shift.opening_cash);
+  const expectedCashDrawer = money(openingCash + cashSales);
+  const cashDifference = money(countedCash - expectedCashDrawer);
+  const now = new Date().toISOString();
+  const closingSummary = {
+    opening_cash: openingCash,
+    cash_sales: cashSales,
+    card_sales: cardSales,
+    transfer_sales: transferSales,
+    expected_cash_drawer: expectedCashDrawer,
+    counted_cash: countedCash,
+    cash_difference: cashDifference,
+    closed_by_email: context.actorEmail,
+  };
+
+  const { error: shiftError } = await context.supabase
+    .from("turquesa_shifts")
+    .update({
+      status: "closed",
+      closed_at: now,
+      closed_by_email: context.actorEmail,
+      cash_sales: cashSales,
+      card_sales: cardSales,
+      transfer_sales: transferSales,
+      expected_cash_drawer: expectedCashDrawer,
+      counted_cash: countedCash,
+      cash_difference: cashDifference,
+      closing_summary: closingSummary,
+      notes: notes || shift.notes,
+      updated_at: now,
+    })
+    .eq("id", shift.id);
+
+  if (shiftError) throw shiftError;
+
+  await context.supabase.from("turquesa_events").insert({
+    restaurant_id: restaurant.id,
+    shift_id: shift.id,
+    entity_type: "turquesa_shifts",
+    entity_id: shift.id,
+    event_type: "shift_closed",
+    actor_email: context.actorEmail,
+    description: `Turno ${shift.label} cerrado. Diferencia de caja ${cashDifference}.`,
+    payload: closingSummary,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    message: `Turno ${shift.label} cerrado. Diferencia de caja ${cashDifference}.`,
+    snapshot: await readSnapshot(context.supabase),
+  });
+}
+
+export async function GET(request: Request) {
+  try {
+    const context = await getDbContext(request);
+    if (context instanceof Response) return context;
+
+    return NextResponse.json({
+      ok: true,
+      snapshot: await readSnapshot(context.supabase),
+      localDev: context.localDev,
+    });
+  } catch (error: any) {
+    return NextResponse.json({
+      ok: true,
+      snapshot: freshDemoSnapshot(`Modo demo: ${publicErrorMessage(error)}`),
+      warning: error?.message || "base Turquesa no disponible",
+    });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const context = await getDbContext(request);
+    if (context instanceof Response) return context;
+
+    const body = await request.json().catch(() => ({}));
+    const action = clean(body?.action);
+
+    if (action === "send_to_kitchen") return await sendToKitchen(body, context);
+    if (action === "advance_ticket") return await advanceTicket(body, context);
+    if (action === "close_order") return await closeOrder(body, context);
+    if (action === "create_reservation") return await createReservation(body, context);
+    if (action === "adjust_inventory") return await adjustInventory(body, context);
+    if (action === "update_inventory_cost") return await updateInventoryCost(body, context);
+    if (action === "create_purchase_request") return await createPurchaseRequest(body, context);
+    if (action === "update_recipe_ingredient") return await updateRecipeIngredient(body, context);
+    if (action === "receive_purchase_request") return await receivePurchaseRequest(body, context);
+    if (action === "update_wifi_lead") return await updateWifiLead(body, context);
+    if (action === "close_shift") return await closeShift(body, context);
+
+    return NextResponse.json({ ok: false, error: "Accion no soportada." }, { status: 400 });
+  } catch (error: any) {
+    return NextResponse.json(
+      { ok: false, error: publicErrorMessage(error) || "No se pudo procesar Turquesa Restaurante." },
+      { status: 500 }
+    );
+  }
+}
