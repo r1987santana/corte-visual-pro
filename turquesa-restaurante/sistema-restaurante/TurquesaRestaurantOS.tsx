@@ -101,6 +101,8 @@ type ClosureFormState = {
   countedCash: string;
   notes: string;
 };
+type ClosureMode = "shift" | "day";
+type DayStatus = "open" | "closed";
 
 type OperationPayload = {
   ok?: boolean;
@@ -401,14 +403,16 @@ function purchaseTotal(items: TurquesaPurchaseRequestItem[]) {
 }
 
 export default function TurquesaRestaurantOS() {
-  const [activeView, setActiveView] = useState<ViewKey>("operacion");
+  const [activeView, setActiveView] = useState<ViewKey>("pos");
   const [snapshot, setSnapshot] = useState<TurquesaSnapshot>(() => freshDemoSnapshot());
   const [selectedTableId, setSelectedTableId] = useState("t3");
   const [search, setSearch] = useState("");
   const [selectedRecipeMenu, setSelectedRecipeMenu] = useState("Ceviche Turquesa");
   const [order, setOrder] = useState<TurquesaOrderItem[]>(() => buildStarterOrder(freshDemoSnapshot().menuItems));
-  const [message, setMessage] = useState("Turno abierto. Cocina y caja sincronizadas.");
+  const [message, setMessage] = useState("POS listo. Inicia el dia, toca una mesa o consulta articulos antes de abrirla.");
   const [syncing, setSyncing] = useState(false);
+  const [dayStatus, setDayStatus] = useState<DayStatus>("open");
+  const [closureMode, setClosureMode] = useState<ClosureMode>("shift");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<TurquesaAIResult | null>(null);
   const [aiPrompt, setAiPrompt] = useState("");
@@ -445,6 +449,14 @@ export default function TurquesaRestaurantOS() {
     () => tables.find((table) => table.id === selectedTableId) || tables[0],
     [selectedTableId, tables]
   );
+  const selectedTableIsFree = selectedTable?.status === "free";
+  const selectedTableIsReserved = selectedTable?.status === "reserved";
+  const posTableGuide = selectedTableIsFree
+    ? `Consulta articulos para ${selectedTable?.label}. La mesa abre cuando envies la primera comanda a cocina.`
+    : selectedTableIsReserved
+      ? `${selectedTable?.label} esta reservada. Puedes consultar articulos antes de convertirla en mesa abierta.`
+      : `Entraste a ${selectedTable?.label}. Agrega articulos, envia cocina o cobra la cuenta.`;
+  const posTableAction = selectedTableIsFree || selectedTableIsReserved ? "Consulta previa" : selectedTable?.label || "Mesa";
   const orderSubtotal = order.reduce((sum, item) => sum + item.price * item.qty, 0);
   const serviceFee = orderSubtotal * 0.1;
   const tax = orderSubtotal * 0.18;
@@ -688,12 +700,34 @@ export default function TurquesaRestaurantOS() {
     setMessage("Reporte CSV generado para gerencia.");
   }
 
+  function selectTableFromMap(table: TurquesaTable) {
+    setSelectedTableId(table.id);
+    setActiveView("pos");
+    if (table.status === "free") {
+      setMessage(`Mesa ${table.label} seleccionada. Puedes consultar articulos; se abre al enviar la primera comanda.`);
+      return;
+    }
+    if (table.status === "reserved") {
+      setMessage(`Mesa ${table.label} reservada. Consulta articulos o prepara la comanda cuando llegue el cliente.`);
+      return;
+    }
+    setMessage(`Entraste a ${table.label}. Articulos listos para agregar, enviar a cocina o cobrar.`);
+  }
+
+  function startDayFromPOS() {
+    setDayStatus("open");
+    setClosureMode("shift");
+    setActiveView("pos");
+    setMessage("Dia iniciado desde POS. Mapa de mesas, articulos, cocina y caja listos para operar.");
+  }
+
   function addItem(item: TurquesaMenuItem) {
     setOrder((current) => {
       const existing = current.find((row) => row.id === item.id);
       if (existing) return current.map((row) => (row.id === item.id ? { ...row, qty: row.qty + 1 } : row));
       return [...current, { ...item, qty: 1 }];
     });
+    setActiveView("pos");
     if (selectedTable) setMessage(`${item.name} agregado a ${selectedTable.label}.`);
   }
 
@@ -736,7 +770,7 @@ export default function TurquesaRestaurantOS() {
       kitchenTickets: [nextTicket, ...current.kitchenTickets],
     }));
     setOrder([]);
-    setActiveView("cocina");
+    setActiveView("pos");
     setMessage(nextMessage);
   }
 
@@ -755,7 +789,7 @@ export default function TurquesaRestaurantOS() {
         items: order,
       });
       setOrder([]);
-      setActiveView("cocina");
+      setActiveView("pos");
       setMessage(payload.message || `Comanda enviada a cocina para ${selectedTable.label}.`);
     } catch (error) {
       sendToKitchenLocal(errorMessage(error));
@@ -848,7 +882,7 @@ export default function TurquesaRestaurantOS() {
       ),
     }));
     setOrder([]);
-    setActiveView("cierre");
+    setActiveView("pos");
     setMessage(nextMessage);
   }
 
@@ -868,7 +902,7 @@ export default function TurquesaRestaurantOS() {
         amount: payableTotal,
       });
       setOrder([]);
-      setActiveView("cierre");
+      setActiveView("pos");
       setMessage(payload.message || `Pago registrado para ${selectedTable.label}.`);
     } catch (error) {
       chargeSelectedTableLocal(errorMessage(error));
@@ -1221,6 +1255,7 @@ export default function TurquesaRestaurantOS() {
 
   async function closeShift() {
     const activeTables = activeTableLabels();
+    setClosureMode("shift");
     setActiveView("cierre");
     if (activeTables.length) {
       setMessage(`No se puede cerrar: mesas abiertas ${activeTables.join(", ")}. Cierra esas cuentas primero.`);
@@ -1240,6 +1275,30 @@ export default function TurquesaRestaurantOS() {
     } finally {
       setSyncing(false);
     }
+  }
+
+  function closeDay() {
+    const activeTables = activeTableLabels();
+    setClosureMode("day");
+    setActiveView("cierre");
+
+    if (activeTables.length) {
+      setMessage(`No se puede cerrar el dia: quedan mesas abiertas ${activeTables.join(", ")}.`);
+      return;
+    }
+
+    if (snapshot.shift.status !== "closed") {
+      setMessage("Primero realiza el cierre de turno. Luego se habilita el cierre del dia.");
+      return;
+    }
+
+    if (tickets.length) {
+      setMessage(`No se puede cerrar el dia: quedan ${tickets.length} ticket(s) en cocina/bar/despacho.`);
+      return;
+    }
+
+    setDayStatus("closed");
+    setMessage("Cierre del dia completado: turno cerrado, caja cuadrada, cocina limpia y reporte listo para gerencia.");
   }
 
   const commandModeViews: ViewKey[] = ["ai", "compras", "contabilidad", "configuracion", "usuarios", "auditoria"];
@@ -1336,6 +1395,7 @@ export default function TurquesaRestaurantOS() {
               type="button"
               className={styles.primaryButton}
               onClick={() => {
+                setClosureMode("shift");
                 setActiveView("cierre");
                 setMessage("Cierre preparado: caja, propina, ITBIS y ventas listos para cuadrar.");
               }}
@@ -1396,7 +1456,7 @@ export default function TurquesaRestaurantOS() {
           <div className={styles.leftStack}>
             <Panel
               title="Mapa de mesas"
-              action={`${selectedTable.zone} / ${selectedTable.seats} pax`}
+              action={activeView === "pos" ? "Toca una mesa" : `${selectedTable.zone} / ${selectedTable.seats} pax`}
               icon={<Table2 size={20} />}
             >
               <div className={styles.tableMap}>
@@ -1414,7 +1474,7 @@ export default function TurquesaRestaurantOS() {
                   <button
                     key={table.id}
                     type="button"
-                    onClick={() => setSelectedTableId(table.id)}
+                    onClick={() => selectTableFromMap(table)}
                     className={`${styles.tableTile} ${styles[`tablePos_${table.id}`] || ""} ${tableTone(table.status)} ${
                       selectedTableId === table.id ? styles.selectedTable : ""
                     }`}
@@ -1427,7 +1487,16 @@ export default function TurquesaRestaurantOS() {
               </div>
             </Panel>
 
-            <Panel title="POS rapido" action={selectedTable.label} icon={<ReceiptText size={20} />}>
+            <Panel title={activeView === "pos" ? "Articulos del POS" : "POS rapido"} action={activeView === "pos" ? posTableAction : selectedTable.label} icon={<ReceiptText size={20} />}>
+              {activeView === "pos" ? (
+                <div className={styles.posGuidance}>
+                  <div>
+                    <span>{dayStatus === "closed" ? "Dia cerrado" : "Dia operativo"}</span>
+                    <strong>{selectedTable.label} / {statusLabel(selectedTable.status)}</strong>
+                  </div>
+                  <p>{posTableGuide}</p>
+                </div>
+              ) : null}
               <div className={styles.posHeader}>
                 <div className={styles.searchBox}>
                   <Search size={16} />
@@ -1572,6 +1641,29 @@ export default function TurquesaRestaurantOS() {
           </div>
 
           <div className={styles.rightStack}>
+            {activeView === "pos" ? (
+              <Panel title="Inicio y cierres" action={dayStatus === "closed" ? "Dia cerrado" : "Dia abierto"} icon={<CalendarClock size={20} />}>
+                <POSDayControlPanel
+                  dayStatus={dayStatus}
+                  shiftStatus={snapshot.shift.status}
+                  openTables={tables.filter((table) => table.status === "open" || table.status === "attention")}
+                  tickets={tickets}
+                  selectedTable={selectedTable}
+                  onStartDay={startDayFromPOS}
+                  onShiftClose={() => {
+                    setClosureMode("shift");
+                    setActiveView("cierre");
+                    setMessage("Paso 1: cierre de turno. Cuadra caja y deja mesas en cero.");
+                  }}
+                  onDayClose={() => {
+                    setClosureMode("day");
+                    setActiveView("cierre");
+                    setMessage("Paso 2: cierre del dia. Disponible despues del cierre de turno.");
+                  }}
+                />
+              </Panel>
+            ) : null}
+
             {activeView === "operacion" ? (
               <Panel title="AI Co-pilot" action={aiProviderLabel(aiResult)} icon={<Brain size={20} />}>
                 <AICopilotMiniPanel
@@ -1600,14 +1692,19 @@ export default function TurquesaRestaurantOS() {
             ) : null}
 
             {activeView === "cierre" ? (
-              <Panel title="Cierre de turno" action={snapshot.shift.status === "closed" ? "Cerrado" : "Caja"} icon={<Banknote size={20} />}>
+              <Panel title={closureMode === "shift" ? "Cierre de turno" : "Cierre del dia"} action={closureMode === "day" ? (dayStatus === "closed" ? "Dia cerrado" : "Paso 2") : snapshot.shift.status === "closed" ? "Turno cerrado" : "Paso 1"} icon={<Banknote size={20} />}>
                 <ShiftClosePanel
+                  mode={closureMode}
+                  dayStatus={dayStatus}
                   shift={snapshot.shift}
+                  tickets={tickets}
                   openTables={tables.filter((table) => table.status === "open" || table.status === "attention")}
                   countedCash={closureForm.countedCash}
                   notes={closureForm.notes}
+                  onModeChange={setClosureMode}
                   onChange={setClosureForm}
-                  onClose={() => void closeShift()}
+                  onCloseShift={() => void closeShift()}
+                  onCloseDay={closeDay}
                   disabled={syncing}
                 />
               </Panel>
@@ -1896,7 +1993,10 @@ function ModuleFocus({
     activeView === "pos"
       ? {
           title: "Punto de venta",
-          subtitle: `Mesa ${selectedTable.label} lista para comandar, cobrar o mover a cocina.`,
+          subtitle:
+            selectedTable.status === "free"
+              ? `Mesa ${selectedTable.label} libre: consulta articulos sin abrirla; se abre al enviar cocina.`
+              : `Mesa ${selectedTable.label} lista para comandar, cobrar o enviar a cocina.`,
           stats: [
             { label: "Mesa", value: selectedTable.label },
             { label: "Metodo", value: paymentLabel(paymentMethod) },
@@ -2184,6 +2284,76 @@ function ActiveOrdersPanel({
       <button type="button" className={styles.textLinkButton} onClick={onOpenPOS}>
         Ver todas las comandas <ArrowRight size={15} />
       </button>
+    </div>
+  );
+}
+
+function POSDayControlPanel({
+  dayStatus,
+  shiftStatus,
+  openTables,
+  tickets,
+  selectedTable,
+  onStartDay,
+  onShiftClose,
+  onDayClose,
+}: {
+  dayStatus: DayStatus;
+  shiftStatus: TurquesaSnapshot["shift"]["status"];
+  openTables: TurquesaTable[];
+  tickets: TurquesaKitchenTicket[];
+  selectedTable: TurquesaTable;
+  onStartDay: () => void;
+  onShiftClose: () => void;
+  onDayClose: () => void;
+}) {
+  const shiftClosed = shiftStatus === "closed";
+  const dayClosed = dayStatus === "closed";
+  const canCloseDay = shiftClosed && !openTables.length && !tickets.length && !dayClosed;
+
+  return (
+    <div className={styles.posFlowPanel}>
+      <div className={styles.posFlowHero}>
+        <span>{dayClosed ? "Operacion terminada" : "Inicio del dia"}</span>
+        <strong>{dayClosed ? "Dia cerrado" : "POS activo"}</strong>
+        <p>El dia inicia aqui: mapa de mesas, consulta de articulos, comandas, cobros y cierres.</p>
+      </div>
+
+      <div className={styles.posFlowSteps}>
+        <div className={styles.posFlowStep}>
+          <i className={styles.posStepReady} />
+          <div>
+            <strong>1. Abrir dia en POS</strong>
+            <span>{dayClosed ? "Listo para nuevo dia" : `Mesa actual ${selectedTable.label}`}</span>
+          </div>
+        </div>
+        <div className={styles.posFlowStep}>
+          <i className={shiftClosed ? styles.posStepReady : styles.posStepPending} />
+          <div>
+            <strong>2. Cierre de turno</strong>
+            <span>{shiftClosed ? "Turno cerrado" : `${openTables.length} mesa(s) abierta(s)`}</span>
+          </div>
+        </div>
+        <div className={styles.posFlowStep}>
+          <i className={dayClosed ? styles.posStepReady : canCloseDay ? styles.posStepPending : styles.posStepLocked} />
+          <div>
+            <strong>3. Cierre del dia</strong>
+            <span>{dayClosed ? "Completado" : tickets.length ? `${tickets.length} ticket(s) pendientes` : canCloseDay ? "Disponible" : "Despues del turno"}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className={styles.posFlowActions}>
+        <button type="button" onClick={onStartDay}>
+          <CheckCircle2 size={15} /> {dayClosed ? "Abrir nuevo dia" : "Confirmar apertura"}
+        </button>
+        <button type="button" onClick={onShiftClose}>
+          <Banknote size={15} /> Cierre turno
+        </button>
+        <button type="button" onClick={onDayClose} disabled={dayClosed}>
+          <FileDown size={15} /> Cierre dia
+        </button>
+      </div>
     </div>
   );
 }
@@ -3949,20 +4119,30 @@ function TurnReportPanel({
 }
 
 function ShiftClosePanel({
+  mode,
+  dayStatus,
   shift,
+  tickets,
   openTables,
   countedCash,
   notes,
+  onModeChange,
   onChange,
-  onClose,
+  onCloseShift,
+  onCloseDay,
   disabled,
 }: {
+  mode: ClosureMode;
+  dayStatus: DayStatus;
   shift: TurquesaSnapshot["shift"];
+  tickets: TurquesaKitchenTicket[];
   openTables: TurquesaTable[];
   countedCash: string;
   notes: string;
+  onModeChange: (mode: ClosureMode) => void;
   onChange: (value: ClosureFormState) => void;
-  onClose: () => void;
+  onCloseShift: () => void;
+  onCloseDay: () => void;
   disabled: boolean;
 }) {
   const paidTotal = shiftPaidTotal(shift);
@@ -3970,53 +4150,98 @@ function ShiftClosePanel({
   const counted = formNumber(countedCash || String(expectedCash));
   const difference = Math.round((counted - expectedCash) * 100) / 100;
   const diffTone = Math.abs(difference) < 1 ? styles.good : difference < 0 ? styles.bad : styles.warn;
+  const shiftClosed = shift.status === "closed";
+  const dayClosed = dayStatus === "closed";
+  const canCloseDay = shiftClosed && !openTables.length && !tickets.length && !dayClosed;
 
   return (
     <div className={styles.closePanel}>
-      <div className={styles.closeHero}>
-        <span>{shift.status === "closed" ? "Turno cerrado" : "Venta del turno"}</span>
-        <strong>{currency(paidTotal)}</strong>
-        <p>{openTables.length ? `${openTables.length} mesas abiertas antes de cerrar.` : "Sin mesas abiertas. Listo para cierre final."}</p>
+      <div className={styles.closureModeTabs}>
+        <button
+          type="button"
+          className={mode === "shift" ? styles.closureModeActive : ""}
+          onClick={() => onModeChange("shift")}
+        >
+          1. Cierre turno
+        </button>
+        <button
+          type="button"
+          className={mode === "day" ? styles.closureModeActive : ""}
+          onClick={() => onModeChange("day")}
+        >
+          2. Cierre dia
+        </button>
       </div>
 
-      <div className={styles.closeBreakdown}>
-        <Line label="Fondo inicial" value={currency(shift.openingCash)} />
-        <Line label="Efectivo vendido" value={currency(shift.cashSales)} />
-        <Line label="Tarjetas" value={currency(shift.cardSales)} />
-        <Line label="Transferencias" value={currency(shift.transferSales)} />
-        <Line label="Efectivo esperado" value={currency(expectedCash)} strong />
+      <div className={`${styles.closeHero} ${mode === "day" ? styles.closeHeroDay : ""}`}>
+        <span>{mode === "day" ? (dayClosed ? "Dia cerrado" : "Cierre final") : shiftClosed ? "Turno cerrado" : "Venta del turno"}</span>
+        <strong>{mode === "day" ? (dayClosed ? "Completado" : currency(paidTotal)) : currency(paidTotal)}</strong>
+        <p>
+          {mode === "day"
+            ? canCloseDay
+              ? "Turno cerrado y sin pendientes. Puedes cerrar el dia."
+              : "El cierre del dia se hace despues del cierre de turno, sin mesas ni tickets pendientes."
+            : openTables.length
+              ? `${openTables.length} mesas abiertas antes de cerrar turno.`
+              : "Sin mesas abiertas. Listo para cerrar turno."}
+        </p>
       </div>
 
-      <div className={styles.cashForm}>
-        <label>
-          <span>Efectivo contado</span>
-          <input
-            type="number"
-            min="0"
-            value={countedCash}
-            onChange={(event) => onChange({ countedCash: event.target.value, notes })}
-            disabled={disabled}
-          />
-        </label>
-        <label>
-          <span>Nota de cierre</span>
-          <textarea
-            value={notes}
-            onChange={(event) => onChange({ countedCash, notes: event.target.value })}
-            placeholder="Ej: deposito preparado, propina revisada..."
-            disabled={disabled}
-          />
-        </label>
-      </div>
+      {mode === "shift" ? (
+        <>
+          <div className={styles.closeBreakdown}>
+            <Line label="Fondo inicial" value={currency(shift.openingCash)} />
+            <Line label="Efectivo vendido" value={currency(shift.cashSales)} />
+            <Line label="Tarjetas" value={currency(shift.cardSales)} />
+            <Line label="Transferencias" value={currency(shift.transferSales)} />
+            <Line label="Efectivo esperado" value={currency(expectedCash)} strong />
+          </div>
 
-      <div className={styles.diffRow}>
-        <span>Diferencia</span>
-        <b className={diffTone}>{currency(difference)}</b>
-      </div>
+          <div className={styles.cashForm}>
+            <label>
+              <span>Efectivo contado</span>
+              <input
+                type="number"
+                min="0"
+                value={countedCash}
+                onChange={(event) => onChange({ countedCash: event.target.value, notes })}
+                disabled={disabled}
+              />
+            </label>
+            <label>
+              <span>Nota de cierre</span>
+              <textarea
+                value={notes}
+                onChange={(event) => onChange({ countedCash, notes: event.target.value })}
+                placeholder="Ej: deposito preparado, propina revisada..."
+                disabled={disabled}
+              />
+            </label>
+          </div>
 
-      <button type="button" className={styles.closeButton} onClick={onClose} disabled={disabled || shift.status === "closed"}>
-        {shift.status === "closed" ? "Turno cerrado" : "Cerrar turno"}
-      </button>
+          <div className={styles.diffRow}>
+            <span>Diferencia</span>
+            <b className={diffTone}>{currency(difference)}</b>
+          </div>
+
+          <button type="button" className={styles.closeButton} onClick={onCloseShift} disabled={disabled || shiftClosed}>
+            {shiftClosed ? "Turno cerrado" : "Cerrar turno"}
+          </button>
+        </>
+      ) : (
+        <>
+          <div className={styles.closeChecklist}>
+            <Line label="Cierre de turno" value={shiftClosed ? "Completado" : "Pendiente"} />
+            <Line label="Mesas abiertas" value={String(openTables.length)} />
+            <Line label="Tickets cocina/bar" value={String(tickets.length)} />
+            <Line label="Reporte gerencia" value={dayClosed ? "Archivado" : canCloseDay ? "Listo" : "Bloqueado"} strong />
+          </div>
+
+          <button type="button" className={styles.closeButton} onClick={onCloseDay} disabled={disabled || !canCloseDay}>
+            {dayClosed ? "Dia cerrado" : "Cerrar dia"}
+          </button>
+        </>
+      )}
 
       {openTables.length ? (
         <p className={styles.closeWarning}>Pendiente: {openTables.map((table) => table.label).join(", ")}.</p>

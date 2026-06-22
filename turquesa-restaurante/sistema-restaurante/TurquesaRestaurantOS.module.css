@@ -676,6 +676,130 @@
   font-weight: 850;
 }
 
+.posFlowPanel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.posFlowHero {
+  min-height: 112px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  border: 1px solid rgba(6, 31, 36, 0.14);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 90% 10%, rgba(86, 215, 209, 0.24), transparent 8rem),
+    linear-gradient(135deg, #06242a, #08747c);
+  color: #ffffff;
+  padding: 14px;
+  box-shadow: 0 16px 34px rgba(6, 31, 36, 0.1);
+}
+
+.posFlowHero span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.posFlowHero strong {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.posFlowHero p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.posFlowSteps {
+  display: grid;
+  gap: 8px;
+}
+
+.posFlowStep {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdfc;
+  padding: 10px;
+}
+
+.posFlowStep i {
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  border-radius: 999px;
+}
+
+.posStepReady {
+  background: var(--green);
+  box-shadow: 0 0 0 4px rgba(29, 153, 95, 0.1);
+}
+
+.posStepPending {
+  background: var(--amber);
+  box-shadow: 0 0 0 4px rgba(201, 119, 20, 0.12);
+}
+
+.posStepLocked {
+  background: #b8c6c3;
+  box-shadow: 0 0 0 4px rgba(116, 136, 133, 0.1);
+}
+
+.posFlowStep strong {
+  display: block;
+  color: var(--charcoal);
+  font-size: 13px;
+}
+
+.posFlowStep span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.posFlowActions {
+  display: grid;
+  gap: 8px;
+}
+
+.posFlowActions button {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--charcoal);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.posFlowActions button:first-child {
+  border-color: var(--teal);
+  background: linear-gradient(135deg, var(--teal-strong), var(--teal));
+  color: #ffffff;
+}
+
+.posFlowActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .aiMiniPanel {
   display: grid;
   gap: 10px;
@@ -935,7 +1059,7 @@
 
 .mainGrid {
   display: grid;
-  grid-template-columns: minmax(430px, 1.08fr) minmax(390px, 0.95fr) minmax(320px, 0.74fr);
+  grid-template-columns: minmax(380px, 1.08fr) minmax(350px, 0.95fr) minmax(286px, 0.74fr);
   gap: 12px;
   align-items: start;
 }
@@ -1253,6 +1377,46 @@
 
 .tableTile small {
   color: var(--muted);
+}
+
+.posGuidance {
+  margin: 12px 12px 0;
+  display: grid;
+  grid-template-columns: minmax(120px, 0.42fr) 1fr;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(7, 139, 147, 0.15);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(8, 117, 125, 0.1), rgba(255, 255, 255, 0.9)),
+    #f8fffd;
+  padding: 10px 12px;
+}
+
+.posGuidance div {
+  display: grid;
+  gap: 3px;
+}
+
+.posGuidance span {
+  color: var(--teal);
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.posGuidance strong {
+  color: var(--charcoal);
+  font-size: 14px;
+  line-height: 1.1;
+}
+
+.posGuidance p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
 }
 
 .tablePos_t1 {
@@ -1723,6 +1887,30 @@
   padding: 16px;
 }
 
+.closureModeTabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.closureModeTabs button {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.closureModeTabs .closureModeActive {
+  border-color: var(--teal);
+  background: #e9fbf8;
+  color: var(--teal);
+  box-shadow: inset 0 0 0 1px rgba(8, 117, 125, 0.08);
+}
+
 .closeHero {
   min-height: 112px;
   border-radius: 8px;
@@ -1734,6 +1922,12 @@
   display: grid;
   align-content: center;
   gap: 5px;
+}
+
+.closeHeroDay {
+  background:
+    radial-gradient(circle at 92% 14%, rgba(255, 202, 105, 0.24), transparent 7rem),
+    linear-gradient(135deg, #09383d, #7c5a17);
 }
 
 .closeHero span {
@@ -1758,6 +1952,15 @@
 
 .closeHero p {
   color: rgba(255, 255, 255, 0.76);
+}
+
+.closeChecklist {
+  display: grid;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff, #f8fbf9);
+  padding: 12px;
 }
 
 .closeBreakdown {
