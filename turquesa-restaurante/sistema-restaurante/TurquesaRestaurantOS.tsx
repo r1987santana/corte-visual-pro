@@ -90,6 +90,7 @@ type ViewKey =
   | "auditoria"
   | "cierre";
 type PaymentMethod = "cash" | "card" | "transfer";
+type SaleMode = "table" | "takeout";
 type WifiLeadStatus = "nuevo" | "promocion" | "cliente" | "no_contactar";
 type ReservationFormState = {
   time: string;
@@ -425,6 +426,8 @@ export default function TurquesaRestaurantOS() {
   ]);
   const [printLog, setPrintLog] = useState<TurquesaPrintLogEntry[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
+  const [saleMode, setSaleMode] = useState<SaleMode>("table");
+  const [takeoutTicketNumber, setTakeoutTicketNumber] = useState(1);
   const [reservationForm, setReservationForm] = useState<ReservationFormState>({
     time: "20:00",
     name: "",
@@ -451,17 +454,23 @@ export default function TurquesaRestaurantOS() {
   );
   const selectedTableIsFree = selectedTable?.status === "free";
   const selectedTableIsReserved = selectedTable?.status === "reserved";
+  const isTakeoutSale = saleMode === "takeout";
   const posTableGuide = selectedTableIsFree
     ? `Consulta articulos para ${selectedTable?.label}. La mesa abre cuando envies la primera comanda a cocina.`
     : selectedTableIsReserved
       ? `${selectedTable?.label} esta reservada. Puedes consultar articulos antes de convertirla en mesa abierta.`
       : `Entraste a ${selectedTable?.label}. Agrega articulos, envia cocina o cobra la cuenta.`;
   const posTableAction = selectedTableIsFree || selectedTableIsReserved ? "Consulta previa" : selectedTable?.label || "Mesa";
+  const posSaleGuide = isTakeoutSale
+    ? "Venta rapida para llevar: cobra y envia a cocina sin aplicar el 10% legal de servicio/propina."
+    : posTableGuide;
+  const posSaleAction = isTakeoutSale ? "Llevar sin 10%" : posTableAction;
   const orderSubtotal = order.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const serviceFee = orderSubtotal * 0.1;
+  const serviceFee = isTakeoutSale ? 0 : orderSubtotal * 0.1;
   const tax = orderSubtotal * 0.18;
   const orderTotal = orderSubtotal + serviceFee + tax;
-  const payableTotal = selectedTable ? Math.round(selectedTable.total + orderTotal) : Math.round(orderTotal);
+  const tableBalance = isTakeoutSale ? 0 : selectedTable?.total || 0;
+  const payableTotal = Math.round(tableBalance + orderTotal);
   const openTables = tables.filter((table) => table.status === "open" || table.status === "attention").length;
   const kitchenReady = tickets.filter((ticket) => ticket.status === "ready").length;
   const expectedCash = expectedShiftCash(snapshot.shift);
@@ -701,6 +710,7 @@ export default function TurquesaRestaurantOS() {
   }
 
   function selectTableFromMap(table: TurquesaTable) {
+    setSaleMode("table");
     setSelectedTableId(table.id);
     setActiveView("pos");
     if (table.status === "free") {
@@ -712,6 +722,16 @@ export default function TurquesaRestaurantOS() {
       return;
     }
     setMessage(`Entraste a ${table.label}. Articulos listos para agregar, enviar a cocina o cobrar.`);
+  }
+
+  function activateSaleMode(mode: SaleMode) {
+    setSaleMode(mode);
+    setActiveView("pos");
+    if (mode === "takeout") {
+      setMessage("Venta rapida para llevar activa: no aplica el 10% legal de servicio/propina.");
+      return;
+    }
+    setMessage(`Modo mesa activo en ${selectedTable.label}. El 10% legal aplica solo a consumo en salon.`);
   }
 
   function startDayFromPOS() {
@@ -728,6 +748,10 @@ export default function TurquesaRestaurantOS() {
       return [...current, { ...item, qty: 1 }];
     });
     setActiveView("pos");
+    if (isTakeoutSale) {
+      setMessage(`${item.name} agregado a venta para llevar. Total sin 10% legal de servicio/propina.`);
+      return;
+    }
     if (selectedTable) setMessage(`${item.name} agregado a ${selectedTable.label}.`);
   }
 
@@ -775,6 +799,10 @@ export default function TurquesaRestaurantOS() {
   }
 
   async function sendToKitchen() {
+    if (isTakeoutSale) {
+      setMessage("Para llevar se envia a cocina al usar Enviar y cobrar llevar, sin aplicar el 10% legal.");
+      return;
+    }
     if (!selectedTable) return;
     if (!order.length) {
       setMessage("No hay items para enviar a cocina.");
@@ -793,6 +821,80 @@ export default function TurquesaRestaurantOS() {
       setMessage(payload.message || `Comanda enviada a cocina para ${selectedTable.label}.`);
     } catch (error) {
       sendToKitchenLocal(errorMessage(error));
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  function chargeTakeoutSaleLocal(reason: string) {
+    if (!order.length || payableTotal <= 0) {
+      setMessage("Agrega articulos para cobrar una venta rapida para llevar.");
+      return;
+    }
+
+    const ticketLabel = `Llevar #${takeoutTicketNumber}`;
+    const consumption = applyDemoInventoryConsumption(inventory, order, recipeIngredients);
+    const nextTicket: TurquesaKitchenTicket = {
+      id: `K-${Math.floor(220 + Math.random() * 700)}`,
+      table: ticketLabel,
+      items: order.map((item) => `${item.qty}x ${item.name}`),
+      station: "Mixta",
+      minutes: 0,
+      status: "new",
+    };
+    const nextMessage = `Modo demo: venta ${ticketLabel} cobrada por ${paymentLabel(paymentMethod).toLowerCase()} sin 10% legal. ${consumptionSummary(consumption.lines)} ${reason}`;
+
+    setSnapshot((current) => ({
+      ...current,
+      source: "demo",
+      message: nextMessage,
+      generatedAt: new Date().toISOString(),
+      inventory: applyDemoInventoryConsumption(current.inventory, order, current.recipeIngredients).inventory,
+      shift: (() => {
+        const cashSales = Math.round((current.shift.cashSales + (paymentMethod === "cash" ? payableTotal : 0)) * 100) / 100;
+        const cardSales = Math.round((current.shift.cardSales + (paymentMethod === "card" ? payableTotal : 0)) * 100) / 100;
+        const transferSales = Math.round((current.shift.transferSales + (paymentMethod === "transfer" ? payableTotal : 0)) * 100) / 100;
+        const cashOpen = Math.round(cashSales + cardSales + transferSales);
+
+        return {
+          ...current.shift,
+          cashSales,
+          cardSales,
+          transferSales,
+          cashOpen,
+          taxTotal: Math.round((current.shift.taxTotal + tax) * 100) / 100,
+          expectedCashDrawer: Math.round((current.shift.openingCash + cashSales) * 100) / 100,
+          projectedSales: Math.max(current.shift.projectedSales, cashOpen),
+        };
+      })(),
+      kitchenTickets: [nextTicket, ...current.kitchenTickets],
+    }));
+    setOrder([]);
+    setTakeoutTicketNumber((current) => current + 1);
+    setActiveView("pos");
+    setMessage(nextMessage);
+  }
+
+  async function chargeTakeoutSale() {
+    if (!order.length || payableTotal <= 0) {
+      setMessage("Agrega articulos para cobrar una venta rapida para llevar.");
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const payload = await postOperation({
+        action: "create_takeout_sale",
+        method: paymentMethod,
+        amount: payableTotal,
+        items: order,
+      });
+      setOrder([]);
+      setTakeoutTicketNumber((current) => current + 1);
+      setActiveView("pos");
+      setMessage(payload.message || "Venta para llevar cobrada y enviada a cocina sin 10% legal.");
+    } catch (error) {
+      chargeTakeoutSaleLocal(errorMessage(error));
     } finally {
       setSyncing(false);
     }
@@ -887,6 +989,10 @@ export default function TurquesaRestaurantOS() {
   }
 
   async function chargeSelectedTable() {
+    if (isTakeoutSale) {
+      await chargeTakeoutSale();
+      return;
+    }
     if (!selectedTable) return;
     if (payableTotal <= 0) {
       setMessage(`No hay balance para cobrar en ${selectedTable.label}.`);
@@ -1431,6 +1537,7 @@ export default function TurquesaRestaurantOS() {
             wifiLeads={wifiLeads}
             payableTotal={payableTotal}
             paymentMethod={paymentMethod}
+            saleMode={saleMode}
             cashOpen={snapshot.shift.cashOpen}
             projectedSales={snapshot.shift.projectedSales}
             aiResult={aiResult}
@@ -1438,6 +1545,7 @@ export default function TurquesaRestaurantOS() {
             printJobs={printJobs}
             pendingPrintJobs={pendingPrintJobs}
             onSetView={setActiveView}
+            onSetSaleMode={activateSaleMode}
             onMessage={setMessage}
             onSendToKitchen={() => void sendToKitchen()}
             onCharge={() => void chargeSelectedTable()}
@@ -1476,7 +1584,7 @@ export default function TurquesaRestaurantOS() {
                     type="button"
                     onClick={() => selectTableFromMap(table)}
                     className={`${styles.tableTile} ${styles[`tablePos_${table.id}`] || ""} ${tableTone(table.status)} ${
-                      selectedTableId === table.id ? styles.selectedTable : ""
+                      !isTakeoutSale && selectedTableId === table.id ? styles.selectedTable : ""
                     }`}
                   >
                     <span className={styles.tableLabel}>{table.label}</span>
@@ -1487,15 +1595,37 @@ export default function TurquesaRestaurantOS() {
               </div>
             </Panel>
 
-            <Panel title={activeView === "pos" ? "Articulos del POS" : "POS rapido"} action={activeView === "pos" ? posTableAction : selectedTable.label} icon={<ReceiptText size={20} />}>
+            <Panel title={activeView === "pos" ? "Articulos del POS" : "POS rapido"} action={activeView === "pos" ? posSaleAction : selectedTable.label} icon={<ReceiptText size={20} />}>
               {activeView === "pos" ? (
-                <div className={styles.posGuidance}>
-                  <div>
-                    <span>{dayStatus === "closed" ? "Dia cerrado" : "Dia operativo"}</span>
-                    <strong>{selectedTable.label} / {statusLabel(selectedTable.status)}</strong>
+                <>
+                  <div className={styles.saleModeSwitch} aria-label="Tipo de venta del POS">
+                    <button
+                      type="button"
+                      className={saleMode === "table" ? styles.saleModeActive : ""}
+                      onClick={() => activateSaleMode("table")}
+                    >
+                      <Table2 size={17} />
+                      <strong>Mesa</strong>
+                      <span>10% servicio</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={saleMode === "takeout" ? styles.saleModeActive : ""}
+                      onClick={() => activateSaleMode("takeout")}
+                    >
+                      <ShoppingBag size={17} />
+                      <strong>Para llevar</strong>
+                      <span>Sin 10%</span>
+                    </button>
                   </div>
-                  <p>{posTableGuide}</p>
-                </div>
+                  <div className={`${styles.posGuidance} ${isTakeoutSale ? styles.takeoutGuidance : ""}`}>
+                    <div>
+                      <span>{dayStatus === "closed" ? "Dia cerrado" : isTakeoutSale ? "Venta rapida" : "Dia operativo"}</span>
+                      <strong>{isTakeoutSale ? `Llevar #${takeoutTicketNumber} / Sin 10%` : `${selectedTable.label} / ${statusLabel(selectedTable.status)}`}</strong>
+                    </div>
+                    <p>{posSaleGuide}</p>
+                  </div>
+                </>
               ) : null}
               <div className={styles.posHeader}>
                 <div className={styles.searchBox}>
@@ -1506,8 +1636,18 @@ export default function TurquesaRestaurantOS() {
                     placeholder="Buscar plato, bebida o estacion"
                   />
                 </div>
-                <button type="button" className={styles.smallButton} onClick={() => setMessage("Modo propina revisado: 10% incluido.")}>
-                  <Sparkles size={16} /> Propina 10%
+                <button
+                  type="button"
+                  className={styles.smallButton}
+                  onClick={() =>
+                    setMessage(
+                      isTakeoutSale
+                        ? "Venta para llevar: se cobra sin el 10% legal de servicio/propina."
+                        : "Consumo en mesa: se mantiene el 10% legal de servicio."
+                    )
+                  }
+                >
+                  <Sparkles size={16} /> {isTakeoutSale ? "Sin 10%" : "Propina 10%"}
                 </button>
               </div>
               <div className={styles.menuGrid}>
@@ -1540,15 +1680,19 @@ export default function TurquesaRestaurantOS() {
                 <ActiveOrdersPanel tables={tables} tickets={tickets} onSelectTable={setSelectedTableId} onOpenPOS={() => setActiveView("pos")} />
               </Panel>
             ) : (
-              <Panel title={`Comanda ${selectedTable.label}`} action={selectedTable.server} icon={<ClipboardList size={20} />}>
+              <Panel
+                title={`Comanda ${isTakeoutSale ? `Llevar #${takeoutTicketNumber}` : selectedTable.label}`}
+                action={isTakeoutSale ? "Sin 10% legal" : selectedTable.server}
+                icon={<ClipboardList size={20} />}
+              >
                 <div className={styles.orderMeta}>
                   <div>
-                    <span>{statusLabel(selectedTable.status)}</span>
-                    <strong>{selectedTable.zone}</strong>
+                    <span>{isTakeoutSale ? "Tipo" : statusLabel(selectedTable.status)}</span>
+                    <strong>{isTakeoutSale ? "Para llevar" : selectedTable.zone}</strong>
                   </div>
                   <div>
-                    <span>Tiempo</span>
-                    <strong>{selectedTable.minutes || 0} min</strong>
+                    <span>{isTakeoutSale ? "Servicio" : "Tiempo"}</span>
+                    <strong>{isTakeoutSale ? "0% legal" : `${selectedTable.minutes || 0} min`}</strong>
                   </div>
                 </div>
 
@@ -1574,15 +1718,19 @@ export default function TurquesaRestaurantOS() {
                       </div>
                     ))
                   ) : (
-                    <div className={styles.emptyState}>Selecciona items del menu para iniciar la comanda.</div>
+                    <div className={styles.emptyState}>
+                      {isTakeoutSale
+                        ? "Selecciona articulos para crear una venta rapida para llevar sin 10%."
+                        : "Selecciona items del menu para iniciar la comanda."}
+                    </div>
                   )}
                 </div>
 
                 <div className={styles.totals}>
                   <Line label="Subtotal" value={currency(orderSubtotal)} />
-                  <Line label="10% servicio" value={currency(serviceFee)} />
+                  <Line label="10% servicio" value={isTakeoutSale ? "No aplica" : currency(serviceFee)} />
                   <Line label="ITBIS" value={currency(tax)} />
-                  {selectedTable.total > 0 ? <Line label="Cuenta mesa" value={currency(selectedTable.total)} /> : null}
+                  {!isTakeoutSale && selectedTable.total > 0 ? <Line label="Cuenta mesa" value={currency(selectedTable.total)} /> : null}
                   <Line label="Total a cobrar" value={currency(payableTotal)} strong />
                 </div>
 
@@ -1600,12 +1748,33 @@ export default function TurquesaRestaurantOS() {
                 </div>
 
                 <div className={styles.actionGrid}>
-                  <button type="button" className={styles.primaryButton} onClick={sendToKitchen} disabled={syncing}>
-                    Enviar cocina
-                  </button>
-                  <button type="button" className={styles.ghostButton} onClick={() => void chargeSelectedTable()} disabled={syncing}>
-                    Cobrar {paymentLabel(paymentMethod)}
-                  </button>
+                  {isTakeoutSale ? (
+                    <>
+                      <button type="button" className={styles.primaryButton} onClick={() => void chargeSelectedTable()} disabled={syncing}>
+                        Enviar y cobrar llevar
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.ghostButton}
+                        onClick={() => {
+                          setOrder([]);
+                          setMessage("Venta para llevar limpiada. Puedes iniciar otra sin 10% legal.");
+                        }}
+                        disabled={syncing || !order.length}
+                      >
+                        Limpiar venta
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" className={styles.primaryButton} onClick={sendToKitchen} disabled={syncing}>
+                        Enviar cocina
+                      </button>
+                      <button type="button" className={styles.ghostButton} onClick={() => void chargeSelectedTable()} disabled={syncing}>
+                        Cobrar {paymentLabel(paymentMethod)}
+                      </button>
+                    </>
+                  )}
                 </div>
               </Panel>
             )}
@@ -1933,6 +2102,7 @@ function ModuleFocus({
   wifiLeads,
   payableTotal,
   paymentMethod,
+  saleMode,
   cashOpen,
   projectedSales,
   aiResult,
@@ -1940,6 +2110,7 @@ function ModuleFocus({
   printJobs,
   pendingPrintJobs,
   onSetView,
+  onSetSaleMode,
   onMessage,
   onSendToKitchen,
   onCharge,
@@ -1959,6 +2130,7 @@ function ModuleFocus({
   wifiLeads: TurquesaWifiLead[];
   payableTotal: number;
   paymentMethod: PaymentMethod;
+  saleMode: SaleMode;
   cashOpen: number;
   projectedSales: number;
   aiResult: TurquesaAIResult | null;
@@ -1966,6 +2138,7 @@ function ModuleFocus({
   printJobs: TurquesaPrintJob[];
   pendingPrintJobs: TurquesaPrintJob[];
   onSetView: (view: ViewKey) => void;
+  onSetSaleMode: (mode: SaleMode) => void;
   onMessage: (message: string) => void;
   onSendToKitchen: () => void;
   onCharge: () => void;
@@ -1990,7 +2163,21 @@ function ModuleFocus({
     stats: Array<{ label: string; value: string }>;
     actions: Array<{ label: string; onClick: () => void; primary?: boolean }>;
   } =
-    activeView === "pos"
+    activeView === "pos" && saleMode === "takeout"
+      ? {
+          title: "Venta rapida para llevar",
+          subtitle: "Cobra directo, envia a cocina y mantiene la cuenta sin el 10% legal de servicio/propina.",
+          stats: [
+            { label: "Tipo", value: "Para llevar" },
+            { label: "Metodo", value: paymentLabel(paymentMethod) },
+            { label: "A cobrar", value: currency(payableTotal) },
+          ],
+          actions: [
+            { label: "Enviar y cobrar", onClick: onCharge, primary: true },
+            { label: "Volver a mesas", onClick: () => onSetSaleMode("table") },
+          ],
+        }
+      : activeView === "pos"
       ? {
           title: "Punto de venta",
           subtitle:
