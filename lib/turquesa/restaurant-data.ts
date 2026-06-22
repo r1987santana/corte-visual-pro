@@ -97,6 +97,292 @@ export type TurquesaMaterialYieldMetric = {
   note: string;
 };
 
+export type TurquesaWarehouseCategory =
+  | "cocina"
+  | "bar"
+  | "playa_piscina"
+  | "limpieza"
+  | "secos"
+  | "congelados"
+  | "refrigerados";
+
+export type TurquesaStorageLocationKind =
+  | "main"
+  | "kitchen"
+  | "bar"
+  | "beach_pool"
+  | "cleaning"
+  | "dry_storage"
+  | "refrigerated"
+  | "frozen";
+
+export type TurquesaBaseUnit = "g" | "kg" | "ml" | "l" | "u";
+export type TurquesaInventoryUnitKind = "mass" | "volume" | "count";
+export type TurquesaPurchaseReceiptStatus = "draft" | "received" | "void";
+export type TurquesaInventoryBatchStatus = "active" | "depleted" | "expired" | "void";
+export type TurquesaInventoryMovementType =
+  | "purchase_receipt"
+  | "transfer_out"
+  | "transfer_in"
+  | "pos_consumption"
+  | "spoilage"
+  | "production_input"
+  | "production_output"
+  | "weekly_count_adjustment"
+  | "manual_adjustment";
+export type TurquesaInternalTransferStatus = "draft" | "sent" | "received" | "cancelled";
+export type TurquesaWeeklyInventoryStatus = "abierto" | "en_revision" | "cerrado";
+export type TurquesaProductionProcessType =
+  | "limpieza_camarones"
+  | "salsa"
+  | "porcionado_carne"
+  | "jugo"
+  | "base_cocina"
+  | "otro";
+export type TurquesaProductionStatus = "draft" | "completed" | "void";
+export type TurquesaProductionLineRole = "input" | "output" | "waste";
+export type TurquesaRecipeVersionStatus = "draft" | "active" | "archived";
+
+export type TurquesaStorageLocation = {
+  id: string;
+  restaurantId: string;
+  code: string;
+  name: string;
+  kind: TurquesaStorageLocationKind;
+  isPrimary: boolean;
+  isActive: boolean;
+  notes?: string | null;
+};
+
+export type TurquesaSupplier = {
+  id: string;
+  restaurantId: string;
+  name: string;
+  rnc?: string | null;
+  contactName?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  category?: TurquesaWarehouseCategory | null;
+  paymentTerms?: string | null;
+  isActive: boolean;
+};
+
+export type TurquesaInventoryUnit = {
+  id: string;
+  restaurantId: string;
+  code: string;
+  name: string;
+  unitKind: TurquesaInventoryUnitKind;
+  baseUnit: TurquesaBaseUnit;
+  toBaseFactor: number;
+  isPackage: boolean;
+  isActive: boolean;
+};
+
+export type TurquesaPurchaseReceipt = {
+  id: string;
+  restaurantId: string;
+  supplierId?: string | null;
+  purchaseRequestId?: string | null;
+  receiptCode: string;
+  invoiceNumber?: string | null;
+  documentDate?: string | null;
+  receivedAt: string;
+  status: TurquesaPurchaseReceiptStatus;
+  subtotal: number;
+  taxTotal: number;
+  discountTotal: number;
+  freightTotal: number;
+  grandTotal: number;
+  receivedByEmail?: string | null;
+  notes?: string | null;
+};
+
+export type TurquesaInventoryBatch = {
+  id: string;
+  restaurantId: string;
+  inventoryItemId: string;
+  supplierId?: string | null;
+  purchaseReceiptId?: string | null;
+  storageLocationId?: string | null;
+  batchCode?: string | null;
+  invoiceNumber?: string | null;
+  category: TurquesaWarehouseCategory;
+  receivedAt: string;
+  expirationDate?: string | null;
+  quantityReceived: number;
+  quantityRemaining: number;
+  unit: string;
+  baseQuantityReceived: number;
+  baseQuantityRemaining: number;
+  baseUnit: TurquesaBaseUnit;
+  unitCost: number;
+  totalCost: number;
+  status: TurquesaInventoryBatchStatus;
+};
+
+export type TurquesaStockBalance = {
+  id: string;
+  restaurantId: string;
+  storageLocationId: string;
+  inventoryItemId: string;
+  inventoryBatchId?: string | null;
+  quantityOnHand: number;
+  unit: string;
+  baseQuantityOnHand: number;
+  baseUnit: TurquesaBaseUnit;
+  avgCost: number;
+  lastMovementAt?: string | null;
+};
+
+export type TurquesaInventoryMovement = {
+  id: string;
+  restaurantId: string;
+  inventoryItemId: string;
+  inventoryBatchId?: string | null;
+  sourceLocationId?: string | null;
+  destinationLocationId?: string | null;
+  movementType: TurquesaInventoryMovementType;
+  quantity: number;
+  unit: string;
+  baseQuantity: number;
+  baseUnit: TurquesaBaseUnit;
+  unitCost: number;
+  totalCost: number;
+  reason?: string | null;
+  sourceType?: string | null;
+  sourceId?: string | null;
+  actorEmail?: string | null;
+  occurredAt: string;
+};
+
+export type TurquesaInternalTransfer = {
+  id: string;
+  restaurantId: string;
+  transferCode: string;
+  sourceLocationId: string;
+  destinationLocationId: string;
+  status: TurquesaInternalTransferStatus;
+  requestedByEmail?: string | null;
+  sentByEmail?: string | null;
+  receivedByEmail?: string | null;
+  requestedAt: string;
+  sentAt?: string | null;
+  receivedAt?: string | null;
+  notes?: string | null;
+};
+
+export type TurquesaWeeklyInventoryCount = {
+  id: string;
+  restaurantId: string;
+  storageLocationId?: string | null;
+  weekYear: number;
+  weekNumber: number;
+  weekStart: string;
+  weekEnd: string;
+  responsibleEmail?: string | null;
+  responsibleName?: string | null;
+  status: TurquesaWeeklyInventoryStatus;
+  observation?: string | null;
+  signedByEmail?: string | null;
+  signedAt?: string | null;
+  closedAt?: string | null;
+};
+
+export type TurquesaWeeklyInventoryCountItem = {
+  id: string;
+  weeklyCountId: string;
+  inventoryItemId: string;
+  inventoryBatchId?: string | null;
+  storageLocationId?: string | null;
+  physicalQuantity: number;
+  expectedQuantity: number;
+  differenceQuantity: number;
+  unit: string;
+  unitCost: number;
+  differenceCost: number;
+  observation?: string | null;
+  evidenceUrl?: string | null;
+  confirmedByEmail?: string | null;
+  confirmedAt?: string | null;
+  adjustmentMovementId?: string | null;
+};
+
+export type TurquesaInternalProduction = {
+  id: string;
+  restaurantId: string;
+  productionCode: string;
+  processType: TurquesaProductionProcessType;
+  productName: string;
+  sourceLocationId?: string | null;
+  destinationLocationId?: string | null;
+  productionDate: string;
+  responsibleEmail?: string | null;
+  responsibleName?: string | null;
+  inputQuantity: number;
+  outputQuantity: number;
+  wasteQuantity: number;
+  wastePercent: number;
+  unit: string;
+  status: TurquesaProductionStatus;
+  observation?: string | null;
+};
+
+export type TurquesaInternalProductionItem = {
+  id: string;
+  productionId: string;
+  lineRole: TurquesaProductionLineRole;
+  inventoryItemId: string;
+  inventoryBatchId?: string | null;
+  quantity: number;
+  unit: string;
+  baseQuantity: number;
+  baseUnit: TurquesaBaseUnit;
+  unitCost: number;
+  notes?: string | null;
+};
+
+export type TurquesaBarYieldProfile = {
+  id: string;
+  restaurantId: string;
+  inventoryItemId: string;
+  menuItemId?: string | null;
+  bottleVolumeMl: number;
+  pourMl: number;
+  expectedServings: number;
+  lossAllowancePercent: number;
+  isActive: boolean;
+  notes?: string | null;
+};
+
+export type TurquesaRecipeVersion = {
+  id: string;
+  restaurantId: string;
+  menuItemId: string;
+  versionNumber: number;
+  status: TurquesaRecipeVersionStatus;
+  yieldQuantity: number;
+  yieldUnit: string;
+  costTheoretical: number;
+  approvedByEmail?: string | null;
+  approvedAt?: string | null;
+  notes?: string | null;
+};
+
+export type TurquesaRecipeVersionIngredient = {
+  id: string;
+  recipeVersionId: string;
+  inventoryItemId: string;
+  quantity: number;
+  unit: string;
+  baseQuantity: number;
+  baseUnit: TurquesaBaseUnit;
+  wastePercent: number;
+  costSnapshot: number;
+  notes?: string | null;
+};
+
 export type TurquesaRecipeIngredient = {
   id: string;
   menuItem: string;
