@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   AlertTriangle,
+  Activity,
   Banknote,
   Bell,
   Bot,
@@ -16,9 +17,13 @@ import {
   Clock3,
   Cpu,
   CreditCard,
+  Database,
   FileDown,
   Gauge,
+  History,
+  KeyRound,
   LayoutDashboard,
+  LockKeyhole,
   Menu,
   MessageCircle,
   Minus,
@@ -30,11 +35,14 @@ import {
   RefreshCw,
   Search,
   Send,
+  Settings,
   ShieldCheck,
   ShoppingBag,
+  SlidersHorizontal,
   Sparkles,
   Table2,
   UserRound,
+  UsersRound,
   WalletCards,
   Wifi,
   Zap,
@@ -77,6 +85,9 @@ type ViewKey =
   | "contabilidad"
   | "ai"
   | "reportes"
+  | "configuracion"
+  | "usuarios"
+  | "auditoria"
   | "cierre";
 type PaymentMethod = "cash" | "card" | "transfer";
 type WifiLeadStatus = "nuevo" | "promocion" | "cliente" | "no_contactar";
@@ -177,6 +188,9 @@ const views: Array<{ key: ViewKey; label: string; icon: React.ReactNode }> = [
   { key: "contabilidad", label: "Contabilidad", icon: <WalletCards size={18} /> },
   { key: "ai", label: "AI", icon: <Bot size={18} /> },
   { key: "reportes", label: "Reportes", icon: <FileDown size={18} /> },
+  { key: "configuracion", label: "Configuracion", icon: <Settings size={18} /> },
+  { key: "usuarios", label: "Usuarios", icon: <UsersRound size={18} /> },
+  { key: "auditoria", label: "Auditoria", icon: <History size={18} /> },
   { key: "cierre", label: "Cierre", icon: <Banknote size={18} /> },
 ];
 
@@ -1228,6 +1242,9 @@ export default function TurquesaRestaurantOS() {
     }
   }
 
+  const commandModeViews: ViewKey[] = ["ai", "compras", "contabilidad", "configuracion", "usuarios", "auditoria"];
+  const isCommandMode = commandModeViews.includes(activeView);
+
   if (!selectedTable) {
     return (
       <main className={styles.shell}>
@@ -1287,7 +1304,7 @@ export default function TurquesaRestaurantOS() {
             </button>
             <div>
               <h1>Turquesa Restaurante OS</h1>
-              <p>Mesas, comandas, cocina, caja, inventario y clientes en una sola operacion.</p>
+              <p>Mesas, comandas, cocina, caja, inventario, AI, usuarios y auditoria en una sola operacion.</p>
             </div>
           </div>
           <div className={styles.topActions}>
@@ -1343,7 +1360,7 @@ export default function TurquesaRestaurantOS() {
           </button>
         </div>
 
-        {activeView !== "operacion" && activeView !== "ai" && activeView !== "compras" && activeView !== "contabilidad" ? (
+        {activeView !== "operacion" && !isCommandMode ? (
           <ModuleFocus
             activeView={activeView}
             selectedTable={selectedTable}
@@ -1374,9 +1391,7 @@ export default function TurquesaRestaurantOS() {
         ) : null}
 
         <section
-          className={`${styles.mainGrid} ${
-            activeView === "ai" || activeView === "compras" || activeView === "contabilidad" ? styles.aiModeGrid : ""
-          }`}
+          className={`${styles.mainGrid} ${isCommandMode ? styles.aiModeGrid : ""}`}
         >
           <div className={styles.leftStack}>
             <Panel
@@ -1558,6 +1573,21 @@ export default function TurquesaRestaurantOS() {
 
           <div className={styles.rightStack}>
             {activeView === "operacion" ? (
+              <Panel title="AI Co-pilot" action={aiProviderLabel(aiResult)} icon={<Brain size={20} />}>
+                <AICopilotMiniPanel
+                  ai={aiResult}
+                  loading={aiLoading}
+                  tables={tables}
+                  tickets={tickets}
+                  inventory={inventory}
+                  reservations={reservations}
+                  onAnalyze={() => void runTurquesaAI()}
+                  onOpenAI={() => setActiveView("ai")}
+                />
+              </Panel>
+            ) : null}
+
+            {activeView === "operacion" ? (
               <Panel title="Resumen del dia" action="Dia" icon={<Gauge size={20} />}>
                 <DaySummaryPanel
                   shift={snapshot.shift}
@@ -1692,6 +1722,42 @@ export default function TurquesaRestaurantOS() {
                   purchaseRequests={purchaseRequests}
                   wifiLeads={wifiLeads}
                   onExport={exportTurnReport}
+                />
+              </Panel>
+            ) : null}
+
+            {activeView === "configuracion" ? (
+              <Panel title="Configuracion operativa" action="Premium OS" icon={<Settings size={20} />}>
+                <ConfigurationCommandPanel
+                  snapshot={snapshot}
+                  printJobs={printJobs}
+                  pendingPrintJobs={pendingPrintJobs}
+                  onSync={loadSnapshot}
+                  onRunAI={() => void runTurquesaAI()}
+                  onMessage={setMessage}
+                  disabled={syncing || aiLoading}
+                />
+              </Panel>
+            ) : null}
+
+            {activeView === "usuarios" ? (
+              <Panel title="Usuarios y permisos" action="RBAC" icon={<UsersRound size={20} />}>
+                <UsersCommandPanel snapshot={snapshot} onMessage={setMessage} />
+              </Panel>
+            ) : null}
+
+            {activeView === "auditoria" ? (
+              <Panel title="Auditoria y seguridad" action="Trazabilidad" icon={<History size={20} />}>
+                <AuditCommandPanel
+                  snapshot={snapshot}
+                  tables={tables}
+                  inventory={inventory}
+                  purchaseRequests={purchaseRequests}
+                  printJobs={printJobs}
+                  aiResult={aiResult}
+                  onExport={exportTurnReport}
+                  onRunAI={() => void runTurquesaAI()}
+                  disabled={syncing || aiLoading}
                 />
               </Panel>
             ) : null}
@@ -2201,6 +2267,87 @@ function DaySummaryPanel({
   );
 }
 
+function AICopilotMiniPanel({
+  ai,
+  loading,
+  tables,
+  tickets,
+  inventory,
+  reservations,
+  onAnalyze,
+  onOpenAI,
+}: {
+  ai: TurquesaAIResult | null;
+  loading: boolean;
+  tables: TurquesaTable[];
+  tickets: TurquesaKitchenTicket[];
+  inventory: TurquesaInventoryItem[];
+  reservations: TurquesaReservation[];
+  onAnalyze: () => void;
+  onOpenAI: () => void;
+}) {
+  const attentionTables = tables.filter((table) => table.status === "attention");
+  const readyTickets = tickets.filter((ticket) => ticket.status === "ready");
+  const criticalItems = inventory.filter((item) => item.trend === "critico");
+  const recommendations = ai?.recommendations?.length
+    ? ai.recommendations.slice(0, 3)
+    : [
+        {
+          area: "cocina",
+          priority: readyTickets.length ? "watch" as const : "ok" as const,
+          title: readyTickets.length ? "Despacho pendiente" : "Cocina estable",
+          text: readyTickets.length ? `${readyTickets.length} ticket(s) listos para servir.` : "Tiempos de preparacion dentro de rango.",
+          action: readyTickets.length ? "Asignar runner ahora" : "Mantener ritmo",
+        },
+        {
+          area: "inventario",
+          priority: criticalItems.length ? "urgent" as const : "ok" as const,
+          title: criticalItems.length ? "Compra critica" : "Inventario normal",
+          text: criticalItems[0] ? `${criticalItems[0].item} bajo minimo.` : "No hay insumos criticos.",
+          action: criticalItems.length ? "Crear compra supervisada" : "Revisar al cierre",
+        },
+        {
+          area: "reservas",
+          priority: reservations.length > 2 ? "watch" as const : "ok" as const,
+          title: "Flujo de reservas",
+          text: reservations[0] ? `Proxima ${reservations[0].time}: ${reservations[0].name}.` : "Sin reservas inmediatas.",
+          action: "Preasignar salon",
+        },
+      ];
+
+  return (
+    <div className={styles.aiMiniPanel}>
+      <div className={`${styles.aiMiniHero} ${ai?.riskLevel === "critico" ? styles.aiMiniHeroRisk : ""}`}>
+        <span>Resumen inteligente</span>
+        <strong>{ai ? aiRiskLabel(ai.riskLevel) : attentionTables.length ? "Atencion" : "Normal"}</strong>
+        <p>{ai?.summary || (attentionTables.length ? `${attentionTables.map((table) => table.label).join(", ")} requiere seguimiento.` : "Ventas y servicio estables para el turno.")}</p>
+      </div>
+
+      <div className={styles.aiMiniList}>
+        {recommendations.map((item) => (
+          <article className={styles.aiMiniItem} key={`${item.area}-${item.title}`}>
+            <i className={styles[`aiMiniTone_${item.priority}`]} />
+            <div>
+              <strong>{item.title}</strong>
+              <p>{item.text}</p>
+              <span>{item.action}</span>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <div className={styles.aiMiniActions}>
+        <button type="button" onClick={onAnalyze} disabled={loading}>
+          <Sparkles size={15} /> {loading ? "Analizando" : "Analizar ahora"}
+        </button>
+        <button type="button" onClick={onOpenAI}>
+          <ArrowRight size={15} /> Command center
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Line({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
     <div className={strong ? styles.totalLine : styles.line}>
@@ -2529,6 +2676,355 @@ function AccountingCommandPanel({
               text={difference ? `${currency(difference)} de diferencia contra esperado.` : "Caja balanceada contra esperado."}
               tone={difference ? "red" : "green"}
             />
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ConfigurationCommandPanel({
+  snapshot,
+  printJobs,
+  pendingPrintJobs,
+  onSync,
+  onRunAI,
+  onMessage,
+  disabled,
+}: {
+  snapshot: TurquesaSnapshot;
+  printJobs: TurquesaPrintJob[];
+  pendingPrintJobs: TurquesaPrintJob[];
+  onSync: () => void;
+  onRunAI: () => void;
+  onMessage: (message: string) => void;
+  disabled: boolean;
+}) {
+  const openModules = ["POS", "KDS", "Compras", "Contabilidad", "AI", "Auditoria", "Reservas", "Wi-Fi", "Reportes"];
+  const onlineStations = TURQUESA_PRINTER_STATIONS.length - Math.min(1, pendingPrintJobs.length ? 0 : 0);
+  const configRows = [
+    { title: "Perfil restaurante", text: `${snapshot.restaurant.name} / ${snapshot.restaurant.location}`, value: "Activo" },
+    { title: "Moneda y fiscalidad", text: "DOP, ITBIS 18%, servicio legal 10%", value: "RD" },
+    { title: "Operacion de turno", text: `${snapshot.shift.label}, caja inicial ${currency(snapshot.shift.openingCash)}`, value: snapshot.shift.status === "open" ? "Abierto" : "Cerrado" },
+    { title: "Impresion por estacion", text: `${printJobs.length} trabajos generados / ${pendingPrintJobs.length} pendientes`, value: `${onlineStations}/${TURQUESA_PRINTER_STATIONS.length}` },
+  ];
+
+  return (
+    <div className={styles.commandPanel}>
+      <section className={`${styles.commandHero} ${styles.premiumHero}`}>
+        <div>
+          <span>Centro de configuracion</span>
+          <strong>Turquesa Premium OS</strong>
+          <p>
+            Parametros maestros del restaurante: fiscalidad, estaciones, AI, impresoras, permisos, datos Wi-Fi y cierre protegido.
+          </p>
+        </div>
+        <div className={styles.commandHeroActions}>
+          <button type="button" onClick={onSync} disabled={disabled}>
+            <RefreshCw size={16} /> Sincronizar
+          </button>
+          <button type="button" onClick={onRunAI} disabled={disabled}>
+            <Brain size={16} /> Validar con AI
+          </button>
+          <button type="button" onClick={() => onMessage("Configuracion premium validada para Turquesa.")}>
+            <SlidersHorizontal size={16} /> Reglas maestras
+          </button>
+        </div>
+      </section>
+
+      <div className={styles.commandKpis}>
+        <CommandKpi label="Modulos" value={`${openModules.length}/9`} note="Suite completa activa" tone="teal" />
+        <CommandKpi label="Fiscal" value="18% + 10%" note="ITBIS y servicio" tone="green" />
+        <CommandKpi label="Impresoras" value={`${onlineStations}/3`} note="Cocina, bar, despacho" tone="teal" />
+        <CommandKpi label="Seguridad" value="Alta" note="PIN, roles y auditoria" tone="amber" />
+      </div>
+
+      <section className={styles.commandGrid}>
+        <div className={styles.commandBlock}>
+          <header>
+            <span>Ajustes maestros</span>
+            <strong>Operacion base</strong>
+          </header>
+          <div className={styles.commandRows}>
+            {configRows.map((row) => (
+              <div className={styles.commandRow} key={row.title}>
+                <div>
+                  <strong>{row.title}</strong>
+                  <span>{row.text}</span>
+                </div>
+                <b>{row.value}</b>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className={styles.commandBlock}>
+          <header>
+            <span>Suite activa</span>
+            <strong>Modulos premium</strong>
+          </header>
+          <div className={styles.moduleMatrix}>
+            {openModules.map((module) => (
+              <span key={module}>
+                <CheckCircle2 size={14} /> {module}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className={styles.commandBlock}>
+          <header>
+            <span>Integraciones</span>
+            <strong>Servicios conectados</strong>
+          </header>
+          <div className={styles.auditList}>
+            <AuditItem title="Supabase individual" text="Base del restaurante separada del sistema de fabrica; lista para aplicar SQL." tone="teal" />
+            <AuditItem title="Omada Wi-Fi portal" text="Clientes capturados desde el acceso cautivo para CRM autorizado." tone="green" />
+            <AuditItem title="OpenAI supervisado" text="AI recomienda acciones, pero compras, anulaciones y cierres requieren humano." tone="amber" />
+          </div>
+        </div>
+
+        <div className={styles.commandBlock}>
+          <header>
+            <span>Reglas criticas</span>
+            <strong>Guardrails</strong>
+          </header>
+          <div className={styles.premiumChecklist}>
+            <label><input type="checkbox" checked readOnly /> No cerrar turno con mesas abiertas</label>
+            <label><input type="checkbox" checked readOnly /> Cambios fiscales solo gerente/admin</label>
+            <label><input type="checkbox" checked readOnly /> Toda compra queda en auditoria</label>
+            <label><input type="checkbox" checked readOnly /> AI sin permisos para ejecutar sola</label>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function UsersCommandPanel({ snapshot, onMessage }: { snapshot: TurquesaSnapshot; onMessage: (message: string) => void }) {
+  const staff = [
+    { name: "Alberto Garcia", email: "admin@turquesarestaurante.com", role: "Administrador", area: "Gerencia", status: "Activo", access: "Completo" },
+    { name: "Rafael Mendez", email: "rafael@turquesarestaurante.com", role: "Capitan salon", area: "POS / Reservas", status: "Activo", access: "Operacion" },
+    { name: "Mia Rodriguez", email: "mia@turquesarestaurante.com", role: "Cajera", area: "Caja", status: "Activo", access: "Caja + cierre" },
+    { name: "Cocina Caliente", email: "kds@turquesarestaurante.com", role: "KDS", area: "Cocina", status: "Dispositivo", access: "Preparacion" },
+  ];
+  const permissionRows = [
+    { role: "Administrador", modules: "Todos los modulos, fiscal, usuarios, auditoria" },
+    { role: "Gerencia", modules: "Reportes, compras, contabilidad, AI supervisada" },
+    { role: "Caja", modules: "POS, pagos, cierre con PIN, recibos" },
+    { role: "Cocina / Bar", modules: "KDS, impresoras, tiempos y estados" },
+  ];
+
+  return (
+    <div className={styles.commandPanel}>
+      <section className={`${styles.commandHero} ${styles.peopleHero}`}>
+        <div>
+          <span>Identidad y permisos</span>
+          <strong>{staff.length} usuarios operativos</strong>
+          <p>
+            Roles separados para salon, caja, cocina, gerencia y dispositivos. Cada accion sensible queda ligada a un usuario.
+          </p>
+        </div>
+        <div className={styles.commandHeroActions}>
+          <button type="button" onClick={() => onMessage("Invitacion de usuario preparada para Turquesa.")}>
+            <UserRound size={16} /> Invitar usuario
+          </button>
+          <button type="button" onClick={() => onMessage("Revision de permisos marcada para gerencia.")}>
+            <KeyRound size={16} /> Revisar permisos
+          </button>
+        </div>
+      </section>
+
+      <div className={styles.commandKpis}>
+        <CommandKpi label="Usuarios" value={String(staff.length)} note="Activos y dispositivos" tone="teal" />
+        <CommandKpi label="Roles" value="4" note="RBAC restaurante" tone="green" />
+        <CommandKpi label="PIN" value="Obligatorio" note="Caja y cierre" tone="amber" />
+        <CommandKpi label="Sesion" value="Auditada" note={snapshot.shift.label} tone="teal" />
+      </div>
+
+      <section className={styles.commandGrid}>
+        <div className={styles.commandBlock}>
+          <header>
+            <span>Directorio</span>
+            <strong>Equipo autorizado</strong>
+          </header>
+          <div className={styles.userRows}>
+            {staff.map((person) => (
+              <article className={styles.userRow} key={person.email}>
+                <div className={styles.avatarMark}>{person.name.slice(0, 2).toUpperCase()}</div>
+                <div>
+                  <strong>{person.name}</strong>
+                  <span>{person.email}</span>
+                </div>
+                <b>{person.role}</b>
+                <small>{person.status}</small>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div className={styles.commandBlock}>
+          <header>
+            <span>Permisos</span>
+            <strong>Matriz por rol</strong>
+          </header>
+          <div className={styles.commandRows}>
+            {permissionRows.map((row) => (
+              <div className={styles.commandRow} key={row.role}>
+                <div>
+                  <strong>{row.role}</strong>
+                  <span>{row.modules}</span>
+                </div>
+                <b>Activo</b>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className={styles.commandBlock}>
+          <header>
+            <span>Seguridad</span>
+            <strong>Politicas de acceso</strong>
+          </header>
+          <div className={styles.auditList}>
+            <AuditItem title="PIN en caja" text="Cobros, anulaciones, descuentos y cierre exigen PIN o gerente." tone="amber" />
+            <AuditItem title="Dispositivos KDS" text="Cocina y bar no acceden a contabilidad ni usuarios." tone="green" />
+            <AuditItem title="Sesiones locales" text="Bloqueo por inactividad y rastro por dispositivo." tone="teal" />
+          </div>
+        </div>
+
+        <div className={styles.commandBlock}>
+          <header>
+            <span>Acceso por area</span>
+            <strong>Scopes</strong>
+          </header>
+          <div className={styles.moduleMatrix}>
+            {["Salon", "Caja", "Cocina", "Bar", "Compras", "Gerencia", "Auditoria", "AI"].map((scope) => (
+              <span key={scope}>
+                <LockKeyhole size={14} /> {scope}
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AuditCommandPanel({
+  snapshot,
+  tables,
+  inventory,
+  purchaseRequests,
+  printJobs,
+  aiResult,
+  onExport,
+  onRunAI,
+  disabled,
+}: {
+  snapshot: TurquesaSnapshot;
+  tables: TurquesaTable[];
+  inventory: TurquesaInventoryItem[];
+  purchaseRequests: TurquesaPurchaseRequest[];
+  printJobs: TurquesaPrintJob[];
+  aiResult: TurquesaAIResult | null;
+  onExport: () => void;
+  onRunAI: () => void;
+  disabled: boolean;
+}) {
+  const activeTables = tables.filter((table) => table.status === "open" || table.status === "attention");
+  const riskyInventory = inventory.filter((item) => item.trend === "critico" || item.trend === "bajo");
+  const openPurchases = purchaseRequests.filter((request) => request.status !== "received" && request.status !== "cancelled");
+  const events = [
+    { title: "Apertura de turno", detail: `${snapshot.shift.label} iniciado con fondo ${currency(snapshot.shift.openingCash)}.`, tone: "green" as const, at: "18:00" },
+    { title: "Mesa en seguimiento", detail: activeTables[0] ? `${activeTables[0].label} lleva ${activeTables[0].minutes} min con balance ${currency(activeTables[0].total)}.` : "Salon sin mesas bloqueantes.", tone: activeTables.length ? "amber" as const : "green" as const, at: "Ahora" },
+    { title: "Inventario sensible", detail: riskyInventory[0] ? `${riskyInventory[0].item} requiere reposicion.` : "Inventario sin riesgo critico.", tone: riskyInventory.length ? "red" as const : "green" as const, at: "KDS" },
+    { title: "AI supervisada", detail: aiResult ? `${aiRiskLabel(aiResult.riskLevel)} / ${aiResult.recommendations.length} recomendaciones.` : "AI lista para analisis operativo.", tone: aiResult?.riskLevel === "critico" ? "red" as const : "teal" as const, at: "AI" },
+  ];
+
+  return (
+    <div className={styles.commandPanel}>
+      <section className={`${styles.commandHero} ${styles.auditHero}`}>
+        <div>
+          <span>Rastro operacional</span>
+          <strong>{events.length + printJobs.length} eventos controlados</strong>
+          <p>
+            Auditoria central para caja, usuarios, compras, impresoras, AI y cambios sensibles del restaurante.
+          </p>
+        </div>
+        <div className={styles.commandHeroActions}>
+          <button type="button" onClick={onExport}>
+            <FileDown size={16} /> Exportar rastro
+          </button>
+          <button type="button" onClick={onRunAI} disabled={disabled}>
+            <Activity size={16} /> Analizar riesgos
+          </button>
+        </div>
+      </section>
+
+      <div className={styles.commandKpis}>
+        <CommandKpi label="Eventos" value={String(events.length + printJobs.length)} note="Turno actual" tone="teal" />
+        <CommandKpi label="Mesas" value={String(activeTables.length)} note="Abiertas/atencion" tone={activeTables.length ? "amber" : "green"} />
+        <CommandKpi label="Compras" value={String(openPurchases.length)} note="Pendientes" tone={openPurchases.length ? "amber" : "green"} />
+        <CommandKpi label="Riesgo" value={aiRiskLabel(aiResult?.riskLevel)} note="AI + reglas" tone={aiResult?.riskLevel === "critico" ? "red" : "teal"} />
+      </div>
+
+      <section className={styles.commandGrid}>
+        <div className={styles.commandBlock}>
+          <header>
+            <span>Timeline</span>
+            <strong>Eventos recientes</strong>
+          </header>
+          <div className={styles.auditTimeline}>
+            {events.map((event) => (
+              <article className={`${styles.timelineItem} ${styles[`timelineItem_${event.tone}`]}`} key={event.title}>
+                <span>{event.at}</span>
+                <div>
+                  <strong>{event.title}</strong>
+                  <p>{event.detail}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div className={styles.commandBlock}>
+          <header>
+            <span>Controles</span>
+            <strong>Puntos auditables</strong>
+          </header>
+          <div className={styles.auditList}>
+            <AuditItem title="Cierre de caja" text="Bloqueado si existen mesas abiertas, diferencia de caja o PIN ausente." tone={activeTables.length ? "amber" : "green"} />
+            <AuditItem title="Compras e inventario" text="Cada recepcion actualiza costo, stock, proveedor y rastro de usuario." tone={openPurchases.length ? "amber" : "teal"} />
+            <AuditItem title="Impresoras" text={`${printJobs.length} documentos pueden reconciliar cocina, bar y despacho.`} tone="teal" />
+            <AuditItem title="Privacidad Wi-Fi" text="Datos de clientes solo para CRM autorizado y promociones permitidas." tone="green" />
+          </div>
+        </div>
+
+        <div className={styles.commandBlock}>
+          <header>
+            <span>Base de datos</span>
+            <strong>Tablas criticas</strong>
+          </header>
+          <div className={styles.moduleMatrix}>
+            {["orders", "payments", "inventory", "purchase_requests", "ai_events", "users", "settings", "audit_log"].map((table) => (
+              <span key={table}>
+                <Database size={14} /> turquesa_{table}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className={styles.commandBlock}>
+          <header>
+            <span>Retencion</span>
+            <strong>Politica premium</strong>
+          </header>
+          <div className={styles.premiumChecklist}>
+            <label><input type="checkbox" checked readOnly /> 24 meses de auditoria operativa</label>
+            <label><input type="checkbox" checked readOnly /> Eventos AI ligados a decision humana</label>
+            <label><input type="checkbox" checked readOnly /> Exportacion CSV para gerencia</label>
+            <label><input type="checkbox" checked readOnly /> Alertas por cambios de permisos</label>
           </div>
         </div>
       </section>
