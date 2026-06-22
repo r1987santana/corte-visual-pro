@@ -958,6 +958,85 @@
   border-color: #e5d2ad;
 }
 
+.staffGate {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 0.68fr);
+  gap: 12px;
+  align-items: stretch;
+  margin-bottom: 12px;
+  border: 1px solid rgba(7, 139, 147, 0.2);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(6, 31, 36, 0.96), rgba(4, 69, 76, 0.92)),
+    #08262b;
+  color: #ffffff;
+  box-shadow: 0 22px 56px rgba(6, 31, 36, 0.14);
+  padding: 12px;
+}
+
+.staffGateActive {
+  border-color: rgba(86, 215, 209, 0.38);
+  background:
+    linear-gradient(135deg, rgba(4, 96, 102, 0.95), rgba(6, 31, 36, 0.96)),
+    #08262b;
+}
+
+.staffGateInfo {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.staffGateInfo span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  color: #86f2ef;
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.staffGateInfo strong {
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.staffGateInfo p {
+  margin: 0;
+  max-width: 760px;
+  color: rgba(248, 255, 252, 0.72);
+  font-size: 12px;
+  font-weight: 720;
+  line-height: 1.38;
+}
+
+.staffGateForm {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.staffGateForm input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(142, 238, 242, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--charcoal);
+  padding: 0 12px;
+  font-size: 15px;
+  font-weight: 850;
+  outline: 0;
+}
+
+.staffGateForm input:focus {
+  border-color: rgba(86, 215, 209, 0.78);
+  box-shadow: 0 0 0 3px rgba(86, 215, 209, 0.14);
+}
+
 .moduleFocus {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(320px, 0.9fr) auto;
@@ -1359,6 +1438,30 @@
   box-shadow: 0 14px 28px rgba(8, 117, 125, 0.13);
 }
 
+.tableTile:disabled {
+  cursor: not-allowed;
+}
+
+.tableTile:disabled:hover {
+  transform: none;
+  border-color: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 14px 30px rgba(71, 48, 26, 0.16);
+}
+
+.tableLocked {
+  background:
+    linear-gradient(145deg, rgba(8, 25, 30, 0.92), rgba(36, 49, 52, 0.9)),
+    #14262a !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  color: rgba(255, 255, 255, 0.78) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 14px 30px rgba(8, 25, 30, 0.18) !important;
+}
+
+.tableLocked::before,
+.tableLocked::after {
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .tableTile > * {
   position: relative;
   z-index: 1;
@@ -1583,6 +1686,10 @@
 .open small,
 .reserved small {
   color: rgba(255, 255, 255, 0.78);
+}
+
+.tableLocked small {
+  color: rgba(255, 255, 255, 0.56);
 }
 
 .posHeader {
@@ -4237,6 +4344,7 @@
   }
 
   .statusRail,
+  .staffGate,
   .moduleFocus,
   .mainGrid,
   .rightStack {
@@ -4287,9 +4395,18 @@
 
   .topbar,
   .topActions,
+  .staffGateForm,
   .posHeader {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .staffGateForm {
+    display: flex;
+  }
+
+  .staffGateForm button {
+    width: 100%;
   }
 
   .topTitle {

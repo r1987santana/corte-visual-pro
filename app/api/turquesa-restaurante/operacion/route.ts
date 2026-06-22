@@ -28,6 +28,13 @@ type OperationBody = Record<string, any>;
 type PaymentMethod = "cash" | "card" | "transfer";
 type ExpensePaymentMethod = PaymentMethod | "pending";
 type WifiLeadStatus = "nuevo" | "promocion" | "cliente" | "no_contactar";
+type StaffAccessRole = "waiter" | "supervisor";
+type StaffAccessSession = {
+  role: StaffAccessRole;
+  code: string;
+  name: string;
+  label: string;
+};
 
 type DbTableRow = {
   id: string;
@@ -62,6 +69,55 @@ function num(value: unknown) {
 
 function clean(value: unknown) {
   return String(value || "").trim();
+}
+
+const waiterAccessCodes: StaffAccessSession[] = [
+  { role: "waiter", code: "1010", name: "Laura", label: "Laura / Salon" },
+  { role: "waiter", code: "2020", name: "Rafael", label: "Rafael / Terraza" },
+  { role: "waiter", code: "3030", name: "Mia", label: "Mia / Bar" },
+  { role: "waiter", code: "4040", name: "Carlos", label: "Carlos / Eventos" },
+  { role: "waiter", code: "5050", name: "Nadia", label: "Nadia / Bar" },
+];
+
+const supervisorAccessCode: StaffAccessSession = {
+  role: "supervisor",
+  code: "9090",
+  name: "Supervisor",
+  label: "Supervisor general",
+};
+
+function staffAccessFromBody(body: OperationBody): StaffAccessSession | null {
+  const code = clean(body?.staffCode);
+  if (!code) return null;
+  if (code === supervisorAccessCode.code) return supervisorAccessCode;
+  return waiterAccessCodes.find((staff) => staff.code === code) || null;
+}
+
+function tableIsOpenForStaffAccess(table: any) {
+  const status = clean(table?.status).toLowerCase();
+  return Boolean(table?.current_order_id) || status === "open" || status === "attention";
+}
+
+function requireTableStaffAccess(body: OperationBody, table: any, action: string) {
+  const staff = staffAccessFromBody(body);
+  if (!staff) {
+    return {
+      response: NextResponse.json({ ok: false, error: `Codigo de mozo requerido para ${action}.` }, { status: 403 }),
+    };
+  }
+
+  const tableOwner = clean(table?.current_server_name);
+  const hasOwner = tableOwner && tableOwner.toLowerCase() !== "libre";
+  if (staff.role !== "supervisor" && tableIsOpenForStaffAccess(table) && hasOwner && tableOwner !== staff.name) {
+    return {
+      response: NextResponse.json(
+        { ok: false, error: `Mesa ${clean(table?.code) || "seleccionada"} abierta por ${tableOwner}. Solo ${tableOwner} o supervisor puede ${action}.` },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { staff };
 }
 
 function normalizePaymentMethod(value: unknown): PaymentMethod {
@@ -719,6 +775,9 @@ async function sendToKitchen(body: OperationBody, context: DbContext) {
 
   if (tableError) throw tableError;
   if (!table) return NextResponse.json({ ok: false, error: "Mesa no encontrada." }, { status: 404 });
+  const access = requireTableStaffAccess(body, table, "enviar a cocina");
+  if (access.response) return access.response;
+  const staff = access.staff as StaffAccessSession;
 
   let order: any = null;
   if (table.current_order_id) {
@@ -742,7 +801,10 @@ async function sendToKitchen(body: OperationBody, context: DbContext) {
         table_id: table.id,
         order_number: orderNumber,
         status: "open",
-        server_name: clean(body?.serverName) || table.current_server_name || "Servicio",
+        server_name:
+          staff.role === "supervisor"
+            ? clean(body?.serverName) || table.current_server_name || staff.name
+            : staff.name,
         pax: Number(table.seats || 1),
         created_by_email: context.actorEmail,
       })
@@ -837,7 +899,7 @@ async function sendToKitchen(body: OperationBody, context: DbContext) {
   const { error: tableUpdateError } = await context.supabase
     .from("turquesa_tables")
     .update({
-      status: table.status === "free" ? "open" : table.status,
+      status: table.status === "free" || table.status === "reserved" ? "open" : table.status,
       current_order_id: order.id,
       current_server_name: order.server_name,
       current_started_at: table.current_started_at || new Date().toISOString(),
@@ -1173,7 +1235,7 @@ async function closeOrder(body: OperationBody, context: DbContext) {
 
   const { data: table, error: tableError } = await context.supabase
     .from("turquesa_tables")
-    .select("id,code,status,current_order_id")
+    .select("id,code,status,current_order_id,current_server_name")
     .eq("restaurant_id", restaurant.id)
     .eq("code", tableLabel)
     .maybeSingle();
@@ -1181,6 +1243,8 @@ async function closeOrder(body: OperationBody, context: DbContext) {
   if (tableError) throw tableError;
   if (!table) return NextResponse.json({ ok: false, error: "Mesa no encontrada." }, { status: 404 });
   if (!table.current_order_id) return NextResponse.json({ ok: false, error: "La mesa no tiene una orden abierta." }, { status: 400 });
+  const access = requireTableStaffAccess(body, table, "cobrar");
+  if (access.response) return access.response;
 
   const { data: order, error: orderError } = await context.supabase
     .from("turquesa_orders")

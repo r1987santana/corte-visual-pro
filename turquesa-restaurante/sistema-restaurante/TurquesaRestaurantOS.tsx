@@ -93,6 +93,16 @@ type ViewKey =
   | "cierre";
 type PaymentMethod = "cash" | "card" | "transfer";
 type SaleMode = "table" | "takeout";
+type StaffAccessRole = "waiter" | "supervisor";
+type StaffSession = {
+  role: StaffAccessRole;
+  code: string;
+  name: string;
+  label: string;
+};
+type StaffCodeFormState = {
+  code: string;
+};
 type WifiLeadStatus = "nuevo" | "promocion" | "cliente" | "no_contactar";
 type ReservationFormState = {
   time: string;
@@ -212,6 +222,21 @@ const paymentMethods: Array<{ key: PaymentMethod; label: string }> = [
   { key: "cash", label: "Efectivo" },
   { key: "transfer", label: "Transferencia" },
 ];
+
+const waiterAccessCodes: StaffSession[] = [
+  { role: "waiter", code: "1010", name: "Laura", label: "Laura / Salon" },
+  { role: "waiter", code: "2020", name: "Rafael", label: "Rafael / Terraza" },
+  { role: "waiter", code: "3030", name: "Mia", label: "Mia / Bar" },
+  { role: "waiter", code: "4040", name: "Carlos", label: "Carlos / Eventos" },
+  { role: "waiter", code: "5050", name: "Nadia", label: "Nadia / Bar" },
+];
+
+const supervisorAccessCode: StaffSession = {
+  role: "supervisor",
+  code: "9090",
+  name: "Supervisor",
+  label: "Supervisor general",
+};
 
 const operatingExpenseCategories = [
   { key: "local", label: "Local" },
@@ -441,7 +466,7 @@ function purchaseTotal(items: TurquesaPurchaseRequestItem[]) {
 export default function TurquesaRestaurantOS() {
   const [activeView, setActiveView] = useState<ViewKey>("pos");
   const [snapshot, setSnapshot] = useState<TurquesaSnapshot>(() => freshDemoSnapshot());
-  const [selectedTableId, setSelectedTableId] = useState("t3");
+  const [selectedTableId, setSelectedTableId] = useState("t5");
   const [search, setSearch] = useState("");
   const [selectedRecipeMenu, setSelectedRecipeMenu] = useState("Ceviche Turquesa");
   const [order, setOrder] = useState<TurquesaOrderItem[]>(() => buildStarterOrder(freshDemoSnapshot().menuItems));
@@ -463,6 +488,8 @@ export default function TurquesaRestaurantOS() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
   const [saleMode, setSaleMode] = useState<SaleMode>("table");
   const [takeoutTicketNumber, setTakeoutTicketNumber] = useState(1);
+  const [staffSession, setStaffSession] = useState<StaffSession | null>(null);
+  const [staffCodeForm, setStaffCodeForm] = useState<StaffCodeFormState>({ code: "" });
   const [reservationForm, setReservationForm] = useState<ReservationFormState>({
     time: "20:00",
     name: "",
@@ -499,12 +526,28 @@ export default function TurquesaRestaurantOS() {
   const selectedTableIsFree = selectedTable?.status === "free";
   const selectedTableIsReserved = selectedTable?.status === "reserved";
   const isTakeoutSale = saleMode === "takeout";
-  const posTableGuide = selectedTableIsFree
-    ? `Consulta articulos para ${selectedTable?.label}. La mesa abre cuando envies la primera comanda a cocina.`
-    : selectedTableIsReserved
-      ? `${selectedTable?.label} esta reservada. Puedes consultar articulos antes de convertirla en mesa abierta.`
-      : `Entraste a ${selectedTable?.label}. Agrega articulos, envia cocina o cobra la cuenta.`;
-  const posTableAction = selectedTableIsFree || selectedTableIsReserved ? "Consulta previa" : selectedTable?.label || "Mesa";
+  const activeStaffName = staffSession?.name || "";
+  const isSupervisorSession = staffSession?.role === "supervisor";
+  const tableIsOperationallyOpen = (table: TurquesaTable) => table.status === "open" || table.status === "attention";
+  const tableIsLockedForStaff = (table: TurquesaTable) =>
+    Boolean(staffSession && !isSupervisorSession && tableIsOperationallyOpen(table) && table.server !== activeStaffName);
+  const selectedTableLocked = selectedTable ? tableIsLockedForStaff(selectedTable) : false;
+  const posTableGuide = !staffSession
+    ? "Ingresa el codigo del mozo antes de abrir o entrar a una mesa. El supervisor puede ver todas las mesas abiertas."
+    : selectedTableLocked
+      ? `${selectedTable?.label} fue abierta por ${selectedTable?.server}. Solo ese mozo o supervisor puede entrar.`
+      : selectedTableIsFree
+        ? `Consulta articulos para ${selectedTable?.label}. La mesa abre a nombre de ${activeStaffName} al enviar la primera comanda.`
+        : selectedTableIsReserved
+          ? `${selectedTable?.label} esta reservada. Puedes consultar articulos antes de convertirla en mesa abierta.`
+          : `Entraste a ${selectedTable?.label}. Articulos listos para agregar, enviar a cocina o cobrar.`;
+  const posTableAction = !staffSession
+    ? "Codigo requerido"
+    : selectedTableLocked
+      ? "Bloqueada"
+      : selectedTableIsFree || selectedTableIsReserved
+        ? "Consulta previa"
+        : selectedTable?.label || "Mesa";
   const posSaleGuide = isTakeoutSale
     ? "Venta rapida para llevar: cobra y envia a cocina sin aplicar el 10% legal de servicio/propina."
     : posTableGuide;
@@ -577,6 +620,21 @@ export default function TurquesaRestaurantOS() {
     setSelectedRecipeMenu(recipeIngredients[0]?.menuItem || menuItems[0]?.name || "");
   }, [menuItems, recipeIngredients, selectedRecipeMenu]);
 
+  useEffect(() => {
+    if (!selectedTable || !tables.length) return;
+
+    if (!staffSession && tableIsOperationallyOpen(selectedTable)) {
+      const nextTable = tables.find((table) => !tableIsOperationallyOpen(table)) || tables[0];
+      if (nextTable.id !== selectedTable.id) setSelectedTableId(nextTable.id);
+      return;
+    }
+
+    if (staffSession && !isSupervisorSession && tableIsLockedForStaff(selectedTable)) {
+      const nextTable = tables.find((table) => !tableIsLockedForStaff(table)) || tables[0];
+      if (nextTable.id !== selectedTable.id) setSelectedTableId(nextTable.id);
+    }
+  }, [activeStaffName, isSupervisorSession, selectedTable, staffSession, tables]);
+
   async function postOperation(body: Record<string, unknown>) {
     const response = await apiFetch("/api/turquesa-restaurante/operacion", {
       method: "POST",
@@ -635,6 +693,52 @@ export default function TurquesaRestaurantOS() {
     if (!cleanQuestion || aiLoading) return;
     setAiPrompt("");
     void runTurquesaAI(cleanQuestion, "chat");
+  }
+
+  function resolveStaffCode(code: string): StaffSession | null {
+    const cleanCode = code.trim();
+    if (!cleanCode) return null;
+    if (cleanCode === supervisorAccessCode.code) return supervisorAccessCode;
+    return waiterAccessCodes.find((staff) => staff.code === cleanCode) || null;
+  }
+
+  function submitStaffCode(event?: React.FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    const nextSession = resolveStaffCode(staffCodeForm.code);
+    if (!nextSession) {
+      setMessage("Codigo no autorizado. Usa el codigo asignado al mozo o al supervisor.");
+      return;
+    }
+
+    setStaffSession(nextSession);
+    setStaffCodeForm({ code: "" });
+    setSaleMode("table");
+    setActiveView("pos");
+    setMessage(
+      nextSession.role === "supervisor"
+        ? "Supervisor activo: puede ver y entrar a todas las mesas abiertas."
+        : `Mozo ${nextSession.name} activo: solo puede abrir mesas nuevas o entrar a sus propias mesas.`
+    );
+  }
+
+  function clearStaffSession() {
+    setStaffSession(null);
+    setStaffCodeForm({ code: "" });
+    setSaleMode("table");
+    setMessage("Sesion POS cerrada. Ingresa un codigo de mozo o supervisor para operar mesas.");
+  }
+
+  function guardTableAccess(table: TurquesaTable | undefined, action: string) {
+    if (!table) return false;
+    if (!staffSession) {
+      setMessage(`Codigo requerido para ${action} ${table.label}. Ingresa el codigo del mozo o supervisor.`);
+      return false;
+    }
+    if (tableIsLockedForStaff(table)) {
+      setMessage(`${table.label} fue abierta por ${table.server}. Solo ${table.server} o supervisor puede ${action}.`);
+      return false;
+    }
+    return true;
   }
 
   function markPrinted(jobs: TurquesaPrintJob[], mode: TurquesaPrintLogEntry["mode"]) {
@@ -765,6 +869,7 @@ export default function TurquesaRestaurantOS() {
   }
 
   function selectTableFromMap(table: TurquesaTable) {
+    if (!guardTableAccess(table, "entrar a")) return;
     setSaleMode("table");
     setSelectedTableId(table.id);
     setActiveView("pos");
@@ -797,6 +902,7 @@ export default function TurquesaRestaurantOS() {
   }
 
   function addItem(item: TurquesaMenuItem) {
+    if (!isTakeoutSale && !guardTableAccess(selectedTable, "agregar articulos en")) return;
     setOrder((current) => {
       const existing = current.find((row) => row.id === item.id);
       if (existing) return current.map((row) => (row.id === item.id ? { ...row, qty: row.qty + 1 } : row));
@@ -820,6 +926,7 @@ export default function TurquesaRestaurantOS() {
 
   function sendToKitchenLocal(reason: string) {
     if (!selectedTable) return;
+    if (!guardTableAccess(selectedTable, "enviar a cocina")) return;
     const consumption = applyDemoInventoryConsumption(inventory, order, recipeIngredients);
     const nextTicket: TurquesaKitchenTicket = {
       id: `K-${Math.floor(120 + Math.random() * 80)}`,
@@ -840,7 +947,8 @@ export default function TurquesaRestaurantOS() {
         table.id === selectedTable.id
           ? {
               ...table,
-              status: table.status === "free" ? "open" : table.status,
+              status: table.status === "free" || table.status === "reserved" ? "open" : table.status,
+              server: table.status === "free" || table.status === "reserved" ? activeStaffName || table.server : table.server,
               total: Math.round(table.total + orderTotal),
               minutes: table.minutes || 1,
             }
@@ -859,6 +967,7 @@ export default function TurquesaRestaurantOS() {
       return;
     }
     if (!selectedTable) return;
+    if (!guardTableAccess(selectedTable, "enviar a cocina")) return;
     if (!order.length) {
       setMessage("No hay items para enviar a cocina.");
       return;
@@ -868,7 +977,9 @@ export default function TurquesaRestaurantOS() {
       const payload = await postOperation({
         action: "send_to_kitchen",
         tableLabel: selectedTable.label,
-        serverName: selectedTable.server,
+        serverName: activeStaffName || selectedTable.server,
+        staffCode: staffSession?.code,
+        staffRole: staffSession?.role,
         items: order,
       });
       setOrder([]);
@@ -999,6 +1110,7 @@ export default function TurquesaRestaurantOS() {
 
   function chargeSelectedTableLocal(reason: string) {
     if (!selectedTable) return;
+    if (!guardTableAccess(selectedTable, "cobrar")) return;
     if (payableTotal <= 0) {
       setMessage(`No hay balance para cobrar en ${selectedTable.label}.`);
       return;
@@ -1049,6 +1161,7 @@ export default function TurquesaRestaurantOS() {
       return;
     }
     if (!selectedTable) return;
+    if (!guardTableAccess(selectedTable, "cobrar")) return;
     if (payableTotal <= 0) {
       setMessage(`No hay balance para cobrar en ${selectedTable.label}.`);
       return;
@@ -1061,6 +1174,8 @@ export default function TurquesaRestaurantOS() {
         tableLabel: selectedTable.label,
         method: paymentMethod,
         amount: payableTotal,
+        staffCode: staffSession?.code,
+        staffRole: staffSession?.role,
       });
       setOrder([]);
       setActiveView("pos");
@@ -1660,6 +1775,46 @@ export default function TurquesaRestaurantOS() {
           </button>
         </div>
 
+        <section className={`${styles.staffGate} ${staffSession ? styles.staffGateActive : ""}`}>
+          <div className={styles.staffGateInfo}>
+            <span>
+              <KeyRound size={15} /> Acceso POS
+            </span>
+            <strong>
+              {staffSession
+                ? staffSession.role === "supervisor"
+                  ? "Supervisor activo"
+                  : `Mozo ${staffSession.name} activo`
+                : "Codigo de mozo requerido"}
+            </strong>
+            <p>
+              {staffSession
+                ? staffSession.role === "supervisor"
+                  ? "Puede ver, entrar y cerrar cualquier mesa abierta."
+                  : "Puede abrir mesas nuevas y entrar solo a las mesas que tenga asignadas."
+                : "Cada mozo trabaja con su codigo. Las mesas abiertas por otro mozo quedan reservadas para supervisor."}
+            </p>
+          </div>
+          <form className={styles.staffGateForm} onSubmit={submitStaffCode}>
+            <input
+              value={staffCodeForm.code}
+              onChange={(event) => setStaffCodeForm({ code: event.target.value })}
+              type="password"
+              inputMode="numeric"
+              placeholder={staffSession ? "Cambiar codigo" : "Codigo"}
+              aria-label="Codigo de acceso POS"
+            />
+            <button type="submit" className={styles.primaryButton}>
+              Entrar
+            </button>
+            {staffSession ? (
+              <button type="button" className={styles.ghostButton} onClick={clearStaffSession}>
+                Salir
+              </button>
+            ) : null}
+          </form>
+        </section>
+
         {activeView !== "operacion" && !isCommandMode ? (
           <ModuleFocus
             activeView={activeView}
@@ -1698,7 +1853,13 @@ export default function TurquesaRestaurantOS() {
           <div className={styles.leftStack}>
             <Panel
               title="Mapa de mesas"
-              action={activeView === "pos" ? "Toca una mesa" : `${selectedTable.zone} / ${selectedTable.seats} pax`}
+              action={
+                !staffSession
+                  ? "Codigo requerido"
+                  : isSupervisorSession
+                    ? "Supervisor"
+                    : `Mozo ${activeStaffName}`
+              }
               icon={<Table2 size={20} />}
             >
               <div className={styles.tableMap}>
@@ -1712,20 +1873,32 @@ export default function TurquesaRestaurantOS() {
                 <span className={`${styles.mapPlant} ${styles.mapPlantThree}`} />
                 <span className={`${styles.mapStation} ${styles.mapStationHost}`}>Host</span>
                 <span className={`${styles.mapStation} ${styles.mapStationKitchen}`}>Cocina</span>
-                {tables.map((table) => (
-                  <button
-                    key={table.id}
-                    type="button"
-                    onClick={() => selectTableFromMap(table)}
-                    className={`${styles.tableTile} ${styles[`tablePos_${table.id}`] || ""} ${tableTone(table.status)} ${
-                      !isTakeoutSale && selectedTableId === table.id ? styles.selectedTable : ""
-                    }`}
-                  >
-                    <span className={styles.tableLabel}>{table.label}</span>
-                    <strong>{statusLabel(table.status)}</strong>
-                    <small>{table.status === "free" ? `${table.seats} pax` : currency(table.total)}</small>
-                  </button>
-                ))}
+                {tables.map((table) => {
+                  const locked = tableIsLockedForStaff(table);
+                  const needsCode = !staffSession;
+                  const protectDetails = locked || (needsCode && tableIsOperationallyOpen(table));
+                  return (
+                    <button
+                      key={table.id}
+                      type="button"
+                      onClick={() => selectTableFromMap(table)}
+                      disabled={needsCode || locked}
+                      className={`${styles.tableTile} ${styles[`tablePos_${table.id}`] || ""} ${tableTone(table.status)} ${
+                        !isTakeoutSale && selectedTableId === table.id ? styles.selectedTable : ""
+                      } ${locked ? styles.tableLocked : ""}`}
+                    >
+                      <span className={styles.tableLabel}>{table.label}</span>
+                      <strong>{locked ? "Bloqueada" : needsCode ? "Codigo" : statusLabel(table.status)}</strong>
+                      <small>
+                        {protectDetails
+                          ? "Supervisor"
+                          : table.status === "free"
+                            ? `${table.seats} pax`
+                            : currency(table.total)}
+                      </small>
+                    </button>
+                  );
+                })}
               </div>
             </Panel>
 
@@ -1816,7 +1989,15 @@ export default function TurquesaRestaurantOS() {
             ) : (
               <Panel
                 title={`Comanda ${isTakeoutSale ? `Llevar #${takeoutTicketNumber}` : selectedTable.label}`}
-                action={isTakeoutSale ? "Sin 10% legal" : selectedTable.server}
+                action={
+                  isTakeoutSale
+                    ? "Sin 10% legal"
+                    : !staffSession
+                      ? "Codigo requerido"
+                      : selectedTableLocked
+                        ? "Bloqueada"
+                        : selectedTable.server
+                }
                 icon={<ClipboardList size={20} />}
               >
                 <div className={styles.orderMeta}>
@@ -1901,10 +2082,20 @@ export default function TurquesaRestaurantOS() {
                     </>
                   ) : (
                     <>
-                      <button type="button" className={styles.primaryButton} onClick={sendToKitchen} disabled={syncing}>
+                      <button
+                        type="button"
+                        className={styles.primaryButton}
+                        onClick={sendToKitchen}
+                        disabled={syncing || !staffSession || selectedTableLocked}
+                      >
                         Enviar cocina
                       </button>
-                      <button type="button" className={styles.ghostButton} onClick={() => void chargeSelectedTable()} disabled={syncing}>
+                      <button
+                        type="button"
+                        className={styles.ghostButton}
+                        onClick={() => void chargeSelectedTable()}
+                        disabled={syncing || !staffSession || selectedTableLocked}
+                      >
                         Cobrar {paymentLabel(paymentMethod)}
                       </button>
                     </>
