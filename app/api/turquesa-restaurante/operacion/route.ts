@@ -53,6 +53,9 @@ type DbOrderRow = {
   subtotal?: number | string | null;
   opened_at?: string | null;
   status?: string | null;
+  pax?: number | string | null;
+  guest_name?: string | null;
+  notes?: string | null;
 };
 
 type DbMenuRow = {
@@ -69,6 +72,36 @@ function num(value: unknown) {
 
 function clean(value: unknown) {
   return String(value || "").trim();
+}
+
+function normalizePax(value: unknown, fallback = 1) {
+  const parsed = Number(value);
+  const safeFallback = Math.max(1, Math.min(50, Math.round(Number(fallback) || 1)));
+  if (!Number.isFinite(parsed)) return safeFallback;
+  return Math.max(1, Math.min(50, Math.round(parsed)));
+}
+
+function guestNamesFromBody(body: OperationBody, pax: number) {
+  const raw = Array.isArray(body?.guestNames) ? body.guestNames : [];
+  return raw.map((name: unknown) => clean(name)).filter(Boolean).slice(0, pax);
+}
+
+function guestNamesFromOrder(order: DbOrderRow | null | undefined) {
+  return clean(order?.guest_name)
+    .split(",")
+    .map((name) => clean(name))
+    .filter(Boolean);
+}
+
+function orderItemKitchenNote(line: TurquesaOrderItem) {
+  const guestName = clean(line.guestName);
+  const note = clean(line.note || (line as any).comment || (line as any).notes);
+  return [
+    guestName ? `Para: ${guestName}` : "",
+    note ? `Nota: ${note}` : "",
+  ]
+    .filter(Boolean)
+    .join(" / ");
 }
 
 const waiterAccessCodes: StaffAccessSession[] = [
@@ -411,7 +444,7 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
   const ordersResult = orderIds.length
     ? await supabase
         .from("turquesa_orders")
-        .select("id,total,subtotal,opened_at,status")
+        .select("id,total,subtotal,opened_at,status,pax,guest_name,notes")
         .in("id", orderIds)
     : { data: [], error: null };
 
@@ -424,10 +457,13 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
 
   const tables = dbTables.map((table: any) => {
     const order = table.current_order_id ? orders.get(table.current_order_id) : null;
+    const guestNames = guestNamesFromOrder(order);
     return {
       id: table.id,
       label: table.code,
       seats: Number(table.seats || 0),
+      activePax: order ? normalizePax(order.pax, Number(table.seats || 1)) : undefined,
+      guestNames,
       zone: areas.get(table.dining_area_id) || "Salon",
       status: uiTableStatus(table.status),
       server: table.current_server_name || "Libre",
@@ -452,14 +488,15 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
   const ticketItemsResult = ticketIds.length
     ? await supabase
         .from("turquesa_kitchen_ticket_items")
-        .select("ticket_id,item_name,quantity")
+        .select("ticket_id,item_name,quantity,notes")
         .in("ticket_id", ticketIds)
     : { data: [], error: null };
 
   if (ticketItemsResult.error) throw ticketItemsResult.error;
   const itemsByTicket = new Map<string, string[]>();
   (ticketItemsResult.data || []).forEach((item: any) => {
-    const label = `${Number(item.quantity || 1).toFixed(Number(item.quantity || 1) % 1 ? 1 : 0)}x ${item.item_name}`;
+    const note = clean(item.notes);
+    const label = `${Number(item.quantity || 1).toFixed(Number(item.quantity || 1) % 1 ? 1 : 0)}x ${item.item_name}${note ? ` (${note})` : ""}`;
     const list = itemsByTicket.get(item.ticket_id) || [];
     list.push(label);
     itemsByTicket.set(item.ticket_id, list);
@@ -798,6 +835,10 @@ async function sendToKitchen(body: OperationBody, context: DbContext) {
   const access = requireTableStaffAccess(body, table, "enviar a cocina");
   if (access.response) return access.response;
   const staff = access.staff as StaffAccessSession;
+  const pax = normalizePax(body?.pax, Number(table.seats || 1));
+  const guestNames = guestNamesFromBody(body, pax);
+  const guestSummary = guestNames.join(", ");
+  const guestNotes = guestSummary ? `Comensales: ${guestSummary}` : clean(body?.notes);
 
   let order: any = null;
   if (table.current_order_id) {
@@ -825,7 +866,9 @@ async function sendToKitchen(body: OperationBody, context: DbContext) {
           staff.role === "supervisor"
             ? clean(body?.serverName) || table.current_server_name || staff.name
             : staff.name,
-        pax: Number(table.seats || 1),
+        guest_name: guestSummary || null,
+        pax,
+        notes: guestNotes || null,
         created_by_email: context.actorEmail,
       })
       .select("*")
@@ -833,6 +876,22 @@ async function sendToKitchen(body: OperationBody, context: DbContext) {
     if (error) throw error;
     order = data;
   }
+
+  const orderGuestPatch: Record<string, unknown> = {
+    pax,
+    updated_at: new Date().toISOString(),
+  };
+  if (guestSummary) {
+    orderGuestPatch.guest_name = guestSummary;
+    orderGuestPatch.notes = guestNotes;
+  }
+  const { error: orderGuestError } = await context.supabase
+    .from("turquesa_orders")
+    .update(orderGuestPatch)
+    .eq("id", order.id);
+
+  if (orderGuestError) throw orderGuestError;
+  order = { ...order, ...orderGuestPatch };
 
   const menuNames = lines.map((line) => clean(line.name)).filter(Boolean);
   const { data: menuRows, error: menuError } = await context.supabase
@@ -857,6 +916,7 @@ async function sendToKitchen(body: OperationBody, context: DbContext) {
       quantity: qty,
       unit_price: num(menuItem?.price || line.price),
       status: "sent",
+      notes: orderItemKitchenNote(line),
     };
   });
 
@@ -881,6 +941,7 @@ async function sendToKitchen(body: OperationBody, context: DbContext) {
       station: stations.length === 1 ? stations[0] : "Mixta",
       status: "new",
       server_name: order.server_name,
+      notes: guestNotes || null,
     })
     .select("*")
     .single();
@@ -894,6 +955,7 @@ async function sendToKitchen(body: OperationBody, context: DbContext) {
     item_name: item.item_name,
     quantity: item.quantity,
     station: item.station,
+    notes: item.notes,
   }));
 
   if (ticketItemRows.length) {
@@ -1037,6 +1099,7 @@ async function createTakeoutSale(body: OperationBody, context: DbContext) {
       quantity: qty,
       unit_price: num(menuItem?.price || line.price),
       status: "sent",
+      notes: orderItemKitchenNote(line),
     };
   });
 
@@ -1081,6 +1144,7 @@ async function createTakeoutSale(body: OperationBody, context: DbContext) {
     item_name: item.item_name,
     quantity: item.quantity,
     station: item.station,
+    notes: item.notes,
   }));
 
   if (ticketItemRows.length) {

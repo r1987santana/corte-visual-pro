@@ -6,6 +6,8 @@ export type TurquesaTable = {
   id: string;
   label: string;
   seats: number;
+  activePax?: number;
+  guestNames?: string[];
   zone: string;
   status: TurquesaTableStatus;
   server: string;
@@ -24,6 +26,9 @@ export type TurquesaMenuItem = {
 
 export type TurquesaOrderItem = TurquesaMenuItem & {
   qty: number;
+  lineId?: string;
+  guestName?: string;
+  note?: string;
 };
 
 export type TurquesaKitchenTicket = {
@@ -169,10 +174,10 @@ export const TURQUESA_DEMO_SNAPSHOT: TurquesaSnapshot = {
     cashDifference: null,
   },
   tables: [
-    { id: "t1", label: "M1", seats: 2, zone: "Terraza mar", status: "open", server: "Laura", total: 2850, minutes: 18 },
+    { id: "t1", label: "M1", seats: 2, activePax: 2, guestNames: ["Juan", "Mariel"], zone: "Terraza mar", status: "open", server: "Laura", total: 2850, minutes: 18 },
     { id: "t2", label: "M2", seats: 4, zone: "Terraza mar", status: "reserved", server: "Mesa 8:30", total: 0, minutes: 0 },
-    { id: "t3", label: "M3", seats: 4, zone: "Salon", status: "attention", server: "Rafael", total: 6120, minutes: 42 },
-    { id: "t4", label: "M4", seats: 6, zone: "Salon", status: "open", server: "Mia", total: 4480, minutes: 27 },
+    { id: "t3", label: "M3", seats: 4, activePax: 4, guestNames: ["Ana", "Pedro", "Sofia", "Luis"], zone: "Salon", status: "attention", server: "Rafael", total: 6120, minutes: 42 },
+    { id: "t4", label: "M4", seats: 6, activePax: 3, guestNames: ["Mesa 4 A", "Mesa 4 B", "Mesa 4 C"], zone: "Salon", status: "open", server: "Mia", total: 4480, minutes: 27 },
     { id: "t5", label: "M5", seats: 2, zone: "Bar", status: "free", server: "Libre", total: 0, minutes: 0 },
     { id: "t6", label: "M6", seats: 8, zone: "Eventos", status: "open", server: "Carlos", total: 14350, minutes: 55 },
     { id: "t7", label: "B1", seats: 2, zone: "Bar", status: "open", server: "Nadia", total: 1620, minutes: 12 },

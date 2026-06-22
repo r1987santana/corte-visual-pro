@@ -104,6 +104,14 @@ type StaffSession = {
 type StaffCodeFormState = {
   code: string;
 };
+type TableGuestFormState = {
+  pax: string;
+  names: string[];
+};
+type OrderLineDraftState = {
+  guestName: string;
+  note: string;
+};
 type WifiLeadStatus = "nuevo" | "promocion" | "cliente" | "no_contactar";
 type ReservationFormState = {
   time: string;
@@ -306,8 +314,47 @@ function ticketLabel(status: TurquesaKitchenTicket["status"]) {
   return "En cocina";
 }
 
+function clampGuestCount(value: unknown, fallback = 1) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return Math.max(1, Math.min(20, fallback));
+  return Math.max(1, Math.min(20, Math.round(parsed)));
+}
+
+function cleanLineText(value: unknown, max = 90) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function nextOrderLineId(itemId: string) {
+  return `${itemId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function orderLineKey(item: TurquesaOrderItem) {
+  return item.lineId || `${item.id}-${cleanLineText(item.guestName)}-${cleanLineText(item.note)}`;
+}
+
+function orderLineDetails(item: TurquesaOrderItem) {
+  return [
+    item.guestName ? `Para: ${cleanLineText(item.guestName)}` : "",
+    item.note ? `Nota: ${cleanLineText(item.note)}` : "",
+  ]
+    .filter(Boolean)
+    .join(" / ");
+}
+
+function kitchenLineLabel(item: TurquesaOrderItem) {
+  const details = orderLineDetails(item);
+  return `${item.qty}x ${item.name}${details ? ` (${details})` : ""}`;
+}
+
 function buildStarterOrder(menuItems: TurquesaMenuItem[]) {
-  return [menuItems[1], menuItems[5]].filter(Boolean).map((item) => ({ ...item, qty: item.id === menuItems[5]?.id ? 2 : 1 }));
+  return [menuItems[1], menuItems[5]]
+    .filter(Boolean)
+    .map((item, index) => ({
+      ...item,
+      qty: item.id === menuItems[5]?.id ? 2 : 1,
+      lineId: `${item.id}-starter-${index}`,
+      guestName: index === 0 ? "Comensal 1" : "Comensal 2",
+    }));
 }
 
 function errorMessage(error: unknown) {
@@ -497,6 +544,8 @@ export default function TurquesaRestaurantOS() {
   const [saleMode, setSaleMode] = useState<SaleMode>("table");
   const [discountKey, setDiscountKey] = useState<DiscountKey>("none");
   const [takeoutTicketNumber, setTakeoutTicketNumber] = useState(1);
+  const [tableGuestForm, setTableGuestForm] = useState<TableGuestFormState>({ pax: "2", names: ["", ""] });
+  const [orderLineDraft, setOrderLineDraft] = useState<OrderLineDraftState>({ guestName: "Comensal 1", note: "" });
   const [staffSession, setStaffSession] = useState<StaffSession | null>(null);
   const [staffCodeForm, setStaffCodeForm] = useState<StaffCodeFormState>({ code: "" });
   const [reservationForm, setReservationForm] = useState<ReservationFormState>({
@@ -535,6 +584,18 @@ export default function TurquesaRestaurantOS() {
   const selectedTableIsFree = selectedTable?.status === "free";
   const selectedTableIsReserved = selectedTable?.status === "reserved";
   const isTakeoutSale = saleMode === "takeout";
+  const tableGuestCount = clampGuestCount(
+    tableGuestForm.pax,
+    selectedTable?.activePax || selectedTable?.seats || 1
+  );
+  const activeGuestOptions = Array.from({ length: tableGuestCount }, (_, index) =>
+    cleanLineText(tableGuestForm.names[index]) || `Comensal ${index + 1}`
+  );
+  const selectedLineGuest = isTakeoutSale
+    ? "Para llevar"
+    : activeGuestOptions.includes(orderLineDraft.guestName)
+      ? orderLineDraft.guestName
+      : activeGuestOptions[0] || "Comensal 1";
   const activeStaffName = staffSession?.name || "";
   const isSupervisorSession = staffSession?.role === "supervisor";
   const tableIsOperationallyOpen = (table: TurquesaTable) => table.status === "open" || table.status === "attention";
@@ -634,6 +695,17 @@ export default function TurquesaRestaurantOS() {
     if (recipeIngredients.some((item) => item.menuItem === selectedRecipeMenu)) return;
     setSelectedRecipeMenu(recipeIngredients[0]?.menuItem || menuItems[0]?.name || "");
   }, [menuItems, recipeIngredients, selectedRecipeMenu]);
+
+  useEffect(() => {
+    if (!selectedTable || isTakeoutSale) return;
+    const pax = clampGuestCount(selectedTable.activePax || selectedTable.seats || 2, 2);
+    const names = Array.from({ length: pax }, (_, index) => selectedTable.guestNames?.[index] || "");
+    setTableGuestForm({ pax: String(pax), names });
+    setOrderLineDraft((current) => ({
+      ...current,
+      guestName: names.find(Boolean) || "Comensal 1",
+    }));
+  }, [selectedTableId, isTakeoutSale]);
 
   useEffect(() => {
     if (!selectedTable || !tables.length) return;
@@ -916,25 +988,62 @@ export default function TurquesaRestaurantOS() {
     setMessage("Dia iniciado desde POS. Mapa de mesas, articulos, cocina y caja listos para operar.");
   }
 
-  function addItem(item: TurquesaMenuItem) {
-    if (!isTakeoutSale && !guardTableAccess(selectedTable, "agregar articulos en")) return;
-    setOrder((current) => {
-      const existing = current.find((row) => row.id === item.id);
-      if (existing) return current.map((row) => (row.id === item.id ? { ...row, qty: row.qty + 1 } : row));
-      return [...current, { ...item, qty: 1 }];
-    });
-    setActiveView("pos");
-    if (isTakeoutSale) {
-      setMessage(`${item.name} agregado a venta para llevar. Total sin 10% legal de servicio/propina.`);
-      return;
-    }
-    if (selectedTable) setMessage(`${item.name} agregado a ${selectedTable.label}.`);
+  function updateGuestCount(value: string) {
+    const count = clampGuestCount(value, tableGuestCount || selectedTable?.seats || 2);
+    setTableGuestForm((current) => ({
+      pax: String(count),
+      names: Array.from({ length: count }, (_, index) => current.names[index] || ""),
+    }));
+    setOrderLineDraft((current) => ({
+      ...current,
+      guestName: current.guestName || "Comensal 1",
+    }));
   }
 
-  function changeQty(id: string, delta: number) {
+  function updateGuestName(index: number, value: string) {
+    setTableGuestForm((current) => ({
+      ...current,
+      names: Array.from({ length: tableGuestCount }, (_, nameIndex) =>
+        nameIndex === index ? value : current.names[nameIndex] || ""
+      ),
+    }));
+    if (index === 0 && (!orderLineDraft.guestName || orderLineDraft.guestName === "Comensal 1")) {
+      setOrderLineDraft((current) => ({ ...current, guestName: cleanLineText(value) || "Comensal 1" }));
+    }
+  }
+
+  function addItem(item: TurquesaMenuItem) {
+    if (!isTakeoutSale && !guardTableAccess(selectedTable, "agregar articulos en")) return;
+    const guestName = isTakeoutSale ? "Para llevar" : selectedLineGuest;
+    const note = cleanLineText(orderLineDraft.note, 120);
+    setOrder((current) => {
+      const existing = current.find(
+        (row) =>
+          row.id === item.id &&
+          cleanLineText(row.guestName) === guestName &&
+          cleanLineText(row.note) === note
+      );
+      if (existing) {
+        const existingKey = orderLineKey(existing);
+        return current.map((row) => (orderLineKey(row) === existingKey ? { ...row, qty: row.qty + 1 } : row));
+      }
+      return [...current, { ...item, qty: 1, lineId: nextOrderLineId(item.id), guestName, note }];
+    });
+    setOrderLineDraft((current) => ({ ...current, note: "" }));
+    setActiveView("pos");
+    if (isTakeoutSale) {
+      setMessage(`${item.name} agregado a venta para llevar${note ? ` con nota: ${note}` : ""}. Total sin 10% legal de servicio/propina.`);
+      return;
+    }
+    if (selectedTable) {
+      setMessage(`${item.name} agregado a ${selectedTable.label} para ${guestName}${note ? ` con nota: ${note}` : ""}.`);
+    }
+  }
+
+  function changeQty(lineId: string, delta: number) {
     setOrder((current) =>
       current
-        .map((item) => (item.id === id ? { ...item, qty: Math.max(0, item.qty + delta) } : item))
+        .map((item) => (orderLineKey(item) === lineId ? { ...item, qty: Math.max(0, item.qty + delta) } : item))
         .filter((item) => item.qty > 0)
     );
   }
@@ -946,7 +1055,7 @@ export default function TurquesaRestaurantOS() {
     const nextTicket: TurquesaKitchenTicket = {
       id: `K-${Math.floor(120 + Math.random() * 80)}`,
       table: selectedTable.label,
-      items: order.map((item) => `${item.qty}x ${item.name}`),
+      items: order.map(kitchenLineLabel),
       station: "Mixta",
       minutes: 0,
       status: "new",
@@ -964,6 +1073,8 @@ export default function TurquesaRestaurantOS() {
               ...table,
               status: table.status === "free" || table.status === "reserved" ? "open" : table.status,
               server: table.status === "free" || table.status === "reserved" ? activeStaffName || table.server : table.server,
+              activePax: tableGuestCount,
+              guestNames: activeGuestOptions,
               total: Math.round(table.total + orderTotal),
               minutes: table.minutes || 1,
             }
@@ -995,6 +1106,8 @@ export default function TurquesaRestaurantOS() {
         serverName: activeStaffName || selectedTable.server,
         staffCode: staffSession?.code,
         staffRole: staffSession?.role,
+        pax: tableGuestCount,
+        guestNames: activeGuestOptions,
         items: order,
       });
       setOrder([]);
@@ -1018,7 +1131,7 @@ export default function TurquesaRestaurantOS() {
     const nextTicket: TurquesaKitchenTicket = {
       id: `K-${Math.floor(220 + Math.random() * 700)}`,
       table: ticketLabel,
-      items: order.map((item) => `${item.qty}x ${item.name}`),
+      items: order.map(kitchenLineLabel),
       station: "Mixta",
       minutes: 0,
       status: "new",
@@ -1917,7 +2030,9 @@ export default function TurquesaRestaurantOS() {
                           ? "Supervisor"
                           : table.status === "free"
                             ? `${table.seats} pax`
-                            : currency(table.total)}
+                            : table.activePax
+                              ? `${table.activePax} pax`
+                              : currency(table.total)}
                       </small>
                     </button>
                   );
@@ -1955,6 +2070,39 @@ export default function TurquesaRestaurantOS() {
                     </div>
                     <p>{posSaleGuide}</p>
                   </div>
+                  {!isTakeoutSale ? (
+                    <div className={styles.tableGuestPanel}>
+                      <div className={styles.tableGuestIntro}>
+                        <UsersRound size={17} />
+                        <div>
+                          <span>Comensales de la mesa</span>
+                          <strong>{tableGuestCount} para runner y cocina</strong>
+                        </div>
+                      </div>
+                      <label className={styles.guestCountField}>
+                        <span>Cantidad</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={tableGuestForm.pax}
+                          onChange={(event) => updateGuestCount(event.target.value)}
+                        />
+                      </label>
+                      <div className={styles.guestNameGrid}>
+                        {Array.from({ length: tableGuestCount }, (_, index) => (
+                          <label key={`guest-${index}`}>
+                            <span>{`Persona ${index + 1}`}</span>
+                            <input
+                              value={tableGuestForm.names[index] || ""}
+                              onChange={(event) => updateGuestName(index, event.target.value)}
+                              placeholder={`Comensal ${index + 1}`}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </>
               ) : null}
               <div className={styles.posHeader}>
@@ -1980,6 +2128,32 @@ export default function TurquesaRestaurantOS() {
                   <Sparkles size={16} /> {isTakeoutSale ? "Sin 10%" : "Propina 10%"}
                 </button>
               </div>
+              {activeView === "pos" ? (
+                <div className={styles.orderDraftTools}>
+                  <label>
+                    <span>Para</span>
+                    <select
+                      value={selectedLineGuest}
+                      onChange={(event) => setOrderLineDraft((current) => ({ ...current, guestName: event.target.value }))}
+                      disabled={isTakeoutSale}
+                    >
+                      {(isTakeoutSale ? ["Para llevar"] : activeGuestOptions).map((guest) => (
+                        <option key={guest} value={guest}>
+                          {guest}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className={styles.orderNoteField}>
+                    <span>Comentario cocina</span>
+                    <input
+                      value={orderLineDraft.note}
+                      onChange={(event) => setOrderLineDraft((current) => ({ ...current, note: event.target.value }))}
+                      placeholder="Ej: poca sal, salsa aparte"
+                    />
+                  </label>
+                </div>
+              ) : null}
               <div className={styles.menuGrid}>
                 {filteredMenu.map((item) => {
                   const thumbTone = menuThumbTone(item);
@@ -2036,25 +2210,30 @@ export default function TurquesaRestaurantOS() {
 
                 <div className={styles.orderList}>
                   {order.length ? (
-                    order.map((item) => (
-                      <div className={styles.orderRow} key={item.id}>
-                        <div>
-                          <strong>{item.name}</strong>
-                          <span>
-                            {currency(item.price)} / {item.station}
-                          </span>
+                    order.map((item) => {
+                      const lineKey = orderLineKey(item);
+                      const details = orderLineDetails(item);
+                      return (
+                        <div className={styles.orderRow} key={lineKey}>
+                          <div>
+                            <strong>{item.name}</strong>
+                            <span>
+                              {currency(item.price)} / {item.station}
+                            </span>
+                            {details ? <em className={styles.orderItemDetail}>{details}</em> : null}
+                          </div>
+                          <div className={styles.qtyControl}>
+                            <button type="button" onClick={() => changeQty(lineKey, -1)} aria-label={`Quitar ${item.name}`}>
+                              <Minus size={14} />
+                            </button>
+                            <b>{item.qty}</b>
+                            <button type="button" onClick={() => changeQty(lineKey, 1)} aria-label={`Agregar ${item.name}`}>
+                              <Plus size={14} />
+                            </button>
+                          </div>
                         </div>
-                        <div className={styles.qtyControl}>
-                          <button type="button" onClick={() => changeQty(item.id, -1)} aria-label={`Quitar ${item.name}`}>
-                            <Minus size={14} />
-                          </button>
-                          <b>{item.qty}</b>
-                          <button type="button" onClick={() => changeQty(item.id, 1)} aria-label={`Agregar ${item.name}`}>
-                            <Plus size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <div className={styles.emptyState}>
                       {isTakeoutSale

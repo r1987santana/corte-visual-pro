@@ -1601,6 +1601,94 @@
   color: #a95708;
 }
 
+.tableGuestPanel {
+  margin: 12px 12px 0;
+  border: 1px solid rgba(7, 139, 147, 0.18);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(238, 251, 248, 0.9)),
+    #ffffff;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: minmax(180px, 0.9fr) 104px 1.8fr;
+  gap: 10px;
+  align-items: start;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.tableGuestIntro {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.tableGuestIntro svg {
+  width: 30px;
+  height: 30px;
+  padding: 6px;
+  border: 1px solid rgba(7, 139, 147, 0.18);
+  border-radius: 8px;
+  background: rgba(7, 139, 147, 0.08);
+  color: var(--teal);
+}
+
+.tableGuestIntro span,
+.guestCountField span,
+.guestNameGrid span,
+.orderDraftTools span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.tableGuestIntro strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--charcoal);
+  font-size: 13px;
+  line-height: 1.15;
+}
+
+.guestCountField,
+.guestNameGrid label,
+.orderDraftTools label {
+  display: grid;
+  gap: 6px;
+}
+
+.guestCountField input,
+.guestNameGrid input,
+.orderDraftTools input,
+.orderDraftTools select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+  outline: 0;
+}
+
+.guestCountField input:focus,
+.guestNameGrid input:focus,
+.orderDraftTools input:focus,
+.orderDraftTools select:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(8, 117, 125, 0.1);
+}
+
+.guestNameGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(122px, 1fr));
+  gap: 8px;
+}
+
 .tablePos_t1 {
   left: 10%;
   top: 26%;
@@ -1718,6 +1806,18 @@
   color: var(--ink);
   font-size: 13px;
   font-weight: 700;
+}
+
+.orderDraftTools {
+  padding: 10px 12px 0;
+  display: grid;
+  grid-template-columns: minmax(130px, 0.55fr) 1fr;
+  gap: 10px;
+  align-items: end;
+}
+
+.orderNoteField input {
+  font-weight: 750;
 }
 
 .menuGrid {
@@ -1935,6 +2035,16 @@
 .orderRow strong {
   display: block;
   font-size: 14px;
+}
+
+.orderItemDetail {
+  display: block;
+  margin-top: 4px;
+  color: var(--teal);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 850;
+  line-height: 1.3;
 }
 
 .qtyControl {
@@ -4464,6 +4574,9 @@
 
   .tableMap,
   .saleModeSwitch,
+  .tableGuestPanel,
+  .guestNameGrid,
+  .orderDraftTools,
   .menuGrid,
   .orderMeta,
   .methodGrid,
