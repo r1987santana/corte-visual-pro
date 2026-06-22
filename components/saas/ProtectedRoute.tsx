@@ -17,6 +17,11 @@ import { writeAuditLog } from "@/lib/auditTrail";
 const INACTIVITY_LIMIT_MS = 5 * 60 * 1000;
 const SESSION_POLL_MS = 15 * 1000;
 
+function browserPathname(pathname: string) {
+  if (typeof window === "undefined") return pathname;
+  return window.location.pathname || pathname;
+}
+
 function isPublicClientRoute(pathname: string) {
   return (
     pathname.startsWith("/portal-cliente") ||
@@ -25,7 +30,8 @@ function isPublicClientRoute(pathname: string) {
     pathname.startsWith("/privacidad") ||
     pathname.startsWith("/terminos") ||
     pathname.startsWith("/eliminar-cuenta") ||
-    pathname.startsWith("/trabaja-con-nosotros")
+    pathname.startsWith("/trabaja-con-nosotros") ||
+    pathname.startsWith("/turquesa-restaurante")
   );
 }
 
@@ -34,7 +40,8 @@ function isKioskRoute(pathname: string) {
 }
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+  const routerPathname = usePathname();
+  const pathname = browserPathname(routerPathname);
   const router = useRouter();
 
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -85,7 +92,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
 
   useEffect(() => {
     async function check() {
-      if (pathname.startsWith("/login") || isPublicClientRoute(pathname)) {
+      if (pathname.startsWith("/login") || isPublicClientRoute(pathname) || isKioskRoute(pathname)) {
         setChecking(false);
         return;
       }
@@ -177,7 +184,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     });
   }, [checking, pathname, permission, user]);
 
-  if (pathname.startsWith("/login") || isPublicClientRoute(pathname)) return <>{children}</>;
+  if (pathname.startsWith("/login") || isPublicClientRoute(pathname) || isKioskRoute(pathname)) return <>{children}</>;
 
   if (checking) {
     return (

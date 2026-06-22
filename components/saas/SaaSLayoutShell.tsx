@@ -429,6 +429,11 @@ function childActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+function browserPathname(pathname: string) {
+  if (typeof window === "undefined") return pathname;
+  return window.location.pathname || pathname;
+}
+
 function isPublicClientRoute(pathname: string) {
   return (
     pathname.startsWith("/portal-cliente") ||
@@ -436,7 +441,8 @@ function isPublicClientRoute(pathname: string) {
     pathname.startsWith("/privacidad") ||
     pathname.startsWith("/terminos") ||
     pathname.startsWith("/eliminar-cuenta") ||
-    pathname.startsWith("/trabaja-con-nosotros")
+    pathname.startsWith("/trabaja-con-nosotros") ||
+    pathname.startsWith("/turquesa-restaurante")
   );
 }
 
@@ -516,7 +522,8 @@ function getStoredShellToken() {
 }
 
 export default function SaaSLayoutShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+  const routerPathname = usePathname();
+  const pathname = browserPathname(routerPathname);
   const router = useRouter();
 
   const [settings, setSettings] = useState<SaasSettings>(DEFAULT_SAAS_SETTINGS);
