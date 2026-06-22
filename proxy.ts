@@ -5,6 +5,9 @@ const CANONICAL_HOST = "www.rdsssantanagroup.com";
 const TURQUESA_APEX_HOST = "turquesarestaurante.com";
 const TURQUESA_CANONICAL_HOST = "www.turquesarestaurante.com";
 
+const TURQUESA_ALLOWED_PREFIXES = ["/turquesa-web", "/turquesa-restaurante"];
+const TURQUESA_SYSTEM_ENTRYPOINTS = ["/login", "/dashboard", "/operacion"];
+
 export function proxy(request: NextRequest) {
   const host = request.headers.get("host")?.toLowerCase().split(":")[0];
 
@@ -22,10 +25,26 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(url, 308);
   }
 
-  if (host === TURQUESA_CANONICAL_HOST && request.nextUrl.pathname === "/") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/turquesa-web";
-    return NextResponse.rewrite(url);
+  if (host === TURQUESA_CANONICAL_HOST) {
+    const pathname = request.nextUrl.pathname;
+
+    if (pathname === "/") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/turquesa-web";
+      return NextResponse.rewrite(url);
+    }
+
+    if (TURQUESA_SYSTEM_ENTRYPOINTS.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/turquesa-restaurante";
+      return NextResponse.redirect(url, 307);
+    }
+
+    if (!TURQUESA_ALLOWED_PREFIXES.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      return NextResponse.redirect(url, 307);
+    }
   }
 
   return NextResponse.next();
