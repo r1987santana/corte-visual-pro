@@ -434,14 +434,22 @@ function browserPathname(pathname: string) {
   return window.location.pathname || pathname;
 }
 
+function isTurquesaPublicHost() {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname.toLowerCase();
+  return host === "turquesarestaurante.com" || host === "www.turquesarestaurante.com";
+}
+
 function isPublicClientRoute(pathname: string) {
   return (
+    (pathname === "/" && isTurquesaPublicHost()) ||
     pathname.startsWith("/portal-cliente") ||
     pathname.startsWith("/portal/") ||
     pathname.startsWith("/privacidad") ||
     pathname.startsWith("/terminos") ||
     pathname.startsWith("/eliminar-cuenta") ||
     pathname.startsWith("/trabaja-con-nosotros") ||
+    pathname.startsWith("/turquesa-web") ||
     pathname.startsWith("/turquesa-restaurante")
   );
 }
