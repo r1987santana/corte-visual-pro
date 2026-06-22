@@ -5,6 +5,7 @@ import {
   TurquesaInventoryTrend,
   TurquesaKitchenTicket,
   TurquesaOrderItem,
+  TurquesaOperatingExpense,
   TurquesaPurchaseRequest,
   TurquesaRecipeIngredient,
   TurquesaSnapshot,
@@ -25,6 +26,7 @@ type DbContext = {
 
 type OperationBody = Record<string, any>;
 type PaymentMethod = "cash" | "card" | "transfer";
+type ExpensePaymentMethod = PaymentMethod | "pending";
 type WifiLeadStatus = "nuevo" | "promocion" | "cliente" | "no_contactar";
 
 type DbTableRow = {
@@ -68,9 +70,22 @@ function normalizePaymentMethod(value: unknown): PaymentMethod {
   return "card";
 }
 
+function normalizeExpenseMethod(value: unknown): ExpensePaymentMethod {
+  const method = clean(value).toLowerCase();
+  if (method === "cash" || method === "card" || method === "transfer" || method === "pending") return method;
+  return "cash";
+}
+
 function paymentMethodLabel(method: PaymentMethod) {
   if (method === "cash") return "efectivo";
   if (method === "transfer") return "transferencia";
+  return "tarjeta";
+}
+
+function expenseMethodLabel(method: ExpensePaymentMethod) {
+  if (method === "cash") return "efectivo";
+  if (method === "transfer") return "transferencia";
+  if (method === "pending") return "pendiente";
   return "tarjeta";
 }
 
@@ -78,6 +93,28 @@ function shiftSalesColumn(method: PaymentMethod) {
   if (method === "cash") return "cash_sales";
   if (method === "transfer") return "transfer_sales";
   return "card_sales";
+}
+
+function expenseCategoryConfig(value: unknown) {
+  const key = clean(value).toLowerCase().replace(/\s+/g, "_");
+  const categories: Record<string, { label: string; accountCode: string; accountName: string }> = {
+    local: { label: "Local", accountCode: "6120", accountName: "Gastos de local sin factura" },
+    servicios: { label: "Servicios", accountCode: "6130", accountName: "Servicios sin factura" },
+    transporte: { label: "Transporte", accountCode: "6140", accountName: "Transporte sin factura" },
+    compra_menor: { label: "Compra menor", accountCode: "6150", accountName: "Compras menores sin factura" },
+    personal: { label: "Personal", accountCode: "6160", accountName: "Pagos operativos sin factura" },
+    mantenimiento: { label: "Mantenimiento", accountCode: "6170", accountName: "Mantenimiento sin factura" },
+    otros: { label: "Otros", accountCode: "6190", accountName: "Gastos varios sin factura" },
+  };
+
+  return categories[key] || categories.otros;
+}
+
+function expenseCreditAccount(method: ExpensePaymentMethod) {
+  if (method === "cash") return { accountCode: "1101", accountName: "Caja general" };
+  if (method === "transfer") return { accountCode: "1115", accountName: "Banco transferencia" };
+  if (method === "pending") return { accountCode: "2115", accountName: "CXP gastos sin factura" };
+  return { accountCode: "1110", accountName: "Banco tarjeta" };
 }
 
 function money(value: unknown) {
@@ -215,6 +252,7 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
     inventoryResult,
     recipeIngredientsResult,
     purchaseRequestsResult,
+    operatingExpensesResult,
     leadsResult,
   ] = await Promise.all([
     supabase
@@ -262,6 +300,18 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
       .in("status", ["draft", "requested", "approved", "received"])
       .order("requested_at", { ascending: false })
       .limit(5),
+    shift?.id
+      ? supabase
+          .from("turquesa_accounting_entries")
+          .select("id,entry_date,account_code,account_name,debit,credit,memo,metadata,created_at")
+          .eq("restaurant_id", restaurant.id)
+          .eq("shift_id", shift.id)
+          .eq("reference_type", "uninvoiced_expense")
+          .eq("status", "posted")
+          .gt("debit", 0)
+          .order("created_at", { ascending: false })
+          .limit(12)
+      : Promise.resolve({ data: [], error: null }),
     supabase
       .from("turquesa_wifi_leads")
       .select("full_name,source,status,last_seen_at,visits")
@@ -278,6 +328,7 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
     inventoryResult,
     recipeIngredientsResult,
     purchaseRequestsResult,
+    operatingExpensesResult,
     leadsResult,
   ]) {
     if (result.error) throw result.error;
@@ -359,7 +410,24 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
   const cardSales = num(shift?.card_sales);
   const transferSales = num(shift?.transfer_sales);
   const cashOpen = cashSales + cardSales + transferSales;
-  const expectedCashDrawer = money(shift?.expected_cash_drawer || openingCash + cashSales);
+  const operatingExpenses: TurquesaOperatingExpense[] = ((operatingExpensesResult.data || []) as any[]).map((entry) => {
+    const metadata = entry.metadata || {};
+    return {
+      id: entry.id,
+      code: clean(metadata.expense_code) || `GSF-${String(entry.id || "").slice(0, 4).toUpperCase()}`,
+      category: clean(metadata.category_label) || clean(metadata.category) || entry.account_name || "Gasto",
+      description: clean(metadata.description) || clean(entry.memo) || entry.account_name || "Gasto sin factura",
+      amount: num(entry.debit),
+      method: normalizeExpenseMethod(metadata.method),
+      responsible: clean(metadata.responsible) || clean(metadata.created_by) || "Caja",
+      note: clean(metadata.note),
+      createdAt: entry.created_at || entry.entry_date || new Date().toISOString(),
+    };
+  });
+  const cashOperatingExpenses = operatingExpenses
+    .filter((expense) => expense.method === "cash")
+    .reduce((sum, expense) => sum + expense.amount, 0);
+  const expectedCashDrawer = money(openingCash + cashSales - cashOperatingExpenses);
 
   return {
     source: "database",
@@ -443,6 +511,7 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
         estimatedCost: num(item.estimated_cost),
       })),
     })),
+    operatingExpenses,
     wifiLeads: (leadsResult.data || []).map((lead: any) => ({
       name: lead.full_name,
       time: timeLabel(lead.last_seen_at),
@@ -997,6 +1066,96 @@ async function createTakeoutSale(body: OperationBody, context: DbContext) {
   return NextResponse.json({
     ok: true,
     message: `Venta para llevar ${orderNumber} cobrada por ${paymentMethodLabel(method)} sin 10% legal. Ticket ${ticketNumber} enviado a cocina.${consumptionMessage(consumedLines)}${consumptionWarning}`,
+    snapshot: await readSnapshot(context.supabase),
+  });
+}
+
+async function createUninvoicedExpense(body: OperationBody, context: DbContext) {
+  const amount = money(body?.amount);
+  const description = clean(body?.description);
+  const category = expenseCategoryConfig(body?.category);
+  const method = normalizeExpenseMethod(body?.method);
+  const responsible = clean(body?.responsible) || "Caja";
+  const note = clean(body?.note);
+
+  if (!description) return NextResponse.json({ ok: false, error: "Descripcion del gasto requerida." }, { status: 400 });
+  if (amount <= 0) return NextResponse.json({ ok: false, error: "Monto del gasto requerido." }, { status: 400 });
+
+  const restaurant = await getRestaurant(context.supabase);
+  if (!restaurant) return NextResponse.json({ ok: false, error: "Ejecuta primero scripts/turquesa-restaurant-core.sql." }, { status: 503 });
+  const shift = await ensureOpenShift(context.supabase, restaurant.id, context.actorEmail);
+  const credit = expenseCreditAccount(method);
+  const now = new Date().toISOString();
+  const expenseCode = `GSF-${now.slice(0, 10).replace(/\D/g, "")}-${String(Date.now()).slice(-5)}`;
+  const metadata = {
+    expense_code: expenseCode,
+    category: clean(body?.category) || "otros",
+    category_label: category.label,
+    description,
+    method,
+    responsible,
+    note,
+    no_invoice: true,
+    created_by: context.actorEmail,
+  };
+
+  const { error: entriesError } = await context.supabase.from("turquesa_accounting_entries").insert([
+    {
+      restaurant_id: restaurant.id,
+      shift_id: shift.id,
+      entry_date: now.slice(0, 10),
+      account_code: category.accountCode,
+      account_name: category.accountName,
+      debit: amount,
+      credit: 0,
+      reference_type: "uninvoiced_expense",
+      reference_id: shift.id,
+      memo: description,
+      status: "posted",
+      metadata: { ...metadata, line: "expense" },
+    },
+    {
+      restaurant_id: restaurant.id,
+      shift_id: shift.id,
+      entry_date: now.slice(0, 10),
+      account_code: credit.accountCode,
+      account_name: credit.accountName,
+      debit: 0,
+      credit: amount,
+      reference_type: "uninvoiced_expense",
+      reference_id: shift.id,
+      memo: `Pago ${description}`,
+      status: "posted",
+      metadata: { ...metadata, line: "offset" },
+    },
+  ]);
+
+  if (entriesError) throw entriesError;
+
+  if (method === "cash") {
+    const expectedCashDrawer = money(num(shift.expected_cash_drawer || num(shift.opening_cash) + num(shift.cash_sales)) - amount);
+    const { error: shiftError } = await context.supabase
+      .from("turquesa_shifts")
+      .update({ expected_cash_drawer: expectedCashDrawer, updated_at: now })
+      .eq("id", shift.id);
+
+    if (shiftError) throw shiftError;
+  }
+
+  await context.supabase.from("turquesa_events").insert({
+    restaurant_id: restaurant.id,
+    shift_id: shift.id,
+    entity_type: "turquesa_accounting_entries",
+    entity_id: shift.id,
+    event_type: "uninvoiced_expense_created",
+    actor_email: context.actorEmail,
+    description: `${expenseCode}: ${description} registrado sin factura por ${amount}.`,
+    payload: metadata,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    message: `${expenseCode} registrado: ${description} por ${money(amount)} via ${expenseMethodLabel(method)} sin factura.`,
     snapshot: await readSnapshot(context.supabase),
   });
 }
@@ -1701,7 +1860,7 @@ async function closeShift(body: OperationBody, context: DbContext) {
   const shift = await getOpenShift(context.supabase, restaurant.id);
   if (!shift) return NextResponse.json({ ok: false, error: "No hay turno abierto para cerrar." }, { status: 400 });
 
-  const [openOrdersResult, openTablesResult, paymentsResult] = await Promise.all([
+  const [openOrdersResult, openTablesResult, paymentsResult, cashExpensesResult] = await Promise.all([
     context.supabase
       .from("turquesa_orders")
       .select("id,order_number,total,status")
@@ -1720,11 +1879,20 @@ async function closeShift(body: OperationBody, context: DbContext) {
       .select("method,amount")
       .eq("restaurant_id", restaurant.id)
       .eq("shift_id", shift.id),
+    context.supabase
+      .from("turquesa_accounting_entries")
+      .select("debit,metadata")
+      .eq("restaurant_id", restaurant.id)
+      .eq("shift_id", shift.id)
+      .eq("reference_type", "uninvoiced_expense")
+      .eq("status", "posted")
+      .gt("debit", 0),
   ]);
 
   if (openOrdersResult.error) throw openOrdersResult.error;
   if (openTablesResult.error) throw openTablesResult.error;
   if (paymentsResult.error) throw paymentsResult.error;
+  if (cashExpensesResult.error) throw cashExpensesResult.error;
 
   const openOrders = openOrdersResult.data || [];
   const openTables = openTablesResult.data || [];
@@ -1753,7 +1921,10 @@ async function closeShift(body: OperationBody, context: DbContext) {
   const cardSales = money(totals.card || shift.card_sales);
   const transferSales = money(totals.transfer || shift.transfer_sales);
   const openingCash = money(shift.opening_cash);
-  const expectedCashDrawer = money(openingCash + cashSales);
+  const cashExpenses = (cashExpensesResult.data || []).reduce((sum: number, entry: any) => {
+    return normalizeExpenseMethod(entry.metadata?.method) === "cash" ? sum + num(entry.debit) : sum;
+  }, 0);
+  const expectedCashDrawer = money(openingCash + cashSales - cashExpenses);
   const cashDifference = money(countedCash - expectedCashDrawer);
   const now = new Date().toISOString();
   const closingSummary = {
@@ -1761,6 +1932,7 @@ async function closeShift(body: OperationBody, context: DbContext) {
     cash_sales: cashSales,
     card_sales: cardSales,
     transfer_sales: transferSales,
+    cash_uninvoiced_expenses: money(cashExpenses),
     expected_cash_drawer: expectedCashDrawer,
     counted_cash: countedCash,
     cash_difference: cashDifference,
@@ -1835,6 +2007,7 @@ export async function POST(request: Request) {
     if (action === "send_to_kitchen") return await sendToKitchen(body, context);
     if (action === "advance_ticket") return await advanceTicket(body, context);
     if (action === "create_takeout_sale") return await createTakeoutSale(body, context);
+    if (action === "create_uninvoiced_expense") return await createUninvoicedExpense(body, context);
     if (action === "close_order") return await closeOrder(body, context);
     if (action === "create_reservation") return await createReservation(body, context);
     if (action === "adjust_inventory") return await adjustInventory(body, context);

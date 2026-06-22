@@ -80,6 +80,20 @@ export type TurquesaPurchaseRequest = {
   createdAt: string;
 };
 
+export type TurquesaOperatingExpenseMethod = "cash" | "card" | "transfer" | "pending";
+
+export type TurquesaOperatingExpense = {
+  id: string;
+  code: string;
+  category: string;
+  description: string;
+  amount: number;
+  method: TurquesaOperatingExpenseMethod;
+  responsible: string;
+  note: string;
+  createdAt: string;
+};
+
 export type TurquesaWifiLead = {
   name: string;
   time: string;
@@ -122,6 +136,7 @@ export type TurquesaSnapshot = {
   inventory: TurquesaInventoryItem[];
   recipeIngredients: TurquesaRecipeIngredient[];
   purchaseRequests: TurquesaPurchaseRequest[];
+  operatingExpenses: TurquesaOperatingExpense[];
   wifiLeads: TurquesaWifiLead[];
 };
 
@@ -216,6 +231,30 @@ export const TURQUESA_DEMO_SNAPSHOT: TurquesaSnapshot = {
       ],
     },
   ],
+  operatingExpenses: [
+    {
+      id: "GASTO-DEMO-001",
+      code: "GSF-0001",
+      category: "Local",
+      description: "Pago local playa",
+      amount: 45000,
+      method: "transfer",
+      responsible: "Administracion",
+      note: "Gasto sin factura registrado para control interno.",
+      createdAt: "2026-06-21T18:40:00.000Z",
+    },
+    {
+      id: "GASTO-DEMO-002",
+      code: "GSF-0002",
+      category: "Compra menor",
+      description: "Hielo y compra menor",
+      amount: 1800,
+      method: "cash",
+      responsible: "Caja",
+      note: "Sin comprobante fiscal.",
+      createdAt: "2026-06-21T21:05:00.000Z",
+    },
+  ],
   wifiLeads: [
     { name: "Ana M.", time: "6:42 PM", source: "Wi-Fi", status: "nuevo" },
     { name: "Jean P.", time: "7:04 PM", source: "Wi-Fi", status: "promocion" },
@@ -238,6 +277,7 @@ export function freshDemoSnapshot(message = TURQUESA_DEMO_SNAPSHOT.message): Tur
       ...request,
       items: request.items.map((item) => ({ ...item })),
     })),
+    operatingExpenses: TURQUESA_DEMO_SNAPSHOT.operatingExpenses.map((item) => ({ ...item })),
     wifiLeads: TURQUESA_DEMO_SNAPSHOT.wifiLeads.map((item) => ({ ...item })),
   };
 }

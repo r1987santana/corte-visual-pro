@@ -2480,6 +2480,81 @@
   box-shadow: 0 0 0 3px rgba(8, 117, 125, 0.1);
 }
 
+.expenseForm {
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.expenseForm label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.expenseFull,
+.expenseForm button {
+  grid-column: 1 / -1;
+}
+
+.expenseForm input,
+.expenseForm select,
+.expenseForm textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfb;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  outline: 0;
+}
+
+.expenseForm input,
+.expenseForm select {
+  min-height: 40px;
+  padding: 0 10px;
+}
+
+.expenseForm textarea {
+  min-height: 68px;
+  padding: 10px;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.expenseForm input:focus,
+.expenseForm select:focus,
+.expenseForm textarea:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(8, 117, 125, 0.1);
+}
+
+.expenseForm button {
+  min-height: 40px;
+  border: 1px solid var(--teal);
+  border-radius: 8px;
+  background: var(--teal);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.expenseForm button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .purchasePanel {
   display: grid;
   gap: 12px;
@@ -4251,6 +4326,7 @@
     .commandGrid,
     .commandRow,
     .formGrid,
+    .expenseForm,
     .actionRow,
     .actionGrid {
     grid-template-columns: 1fr;

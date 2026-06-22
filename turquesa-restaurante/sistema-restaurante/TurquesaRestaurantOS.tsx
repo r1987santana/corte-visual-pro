@@ -55,6 +55,8 @@ import {
   type TurquesaKitchenTicket,
   type TurquesaMenuItem,
   type TurquesaOrderItem,
+  type TurquesaOperatingExpense,
+  type TurquesaOperatingExpenseMethod,
   type TurquesaPurchaseRequest,
   type TurquesaPurchaseRequestItem,
   type TurquesaRecipeIngredient,
@@ -101,6 +103,14 @@ type ReservationFormState = {
 type ClosureFormState = {
   countedCash: string;
   notes: string;
+};
+type OperatingExpenseFormState = {
+  description: string;
+  category: string;
+  amount: string;
+  method: TurquesaOperatingExpenseMethod;
+  responsible: string;
+  note: string;
 };
 type ClosureMode = "shift" | "day";
 type DayStatus = "open" | "closed";
@@ -203,6 +213,23 @@ const paymentMethods: Array<{ key: PaymentMethod; label: string }> = [
   { key: "transfer", label: "Transferencia" },
 ];
 
+const operatingExpenseCategories = [
+  { key: "local", label: "Local" },
+  { key: "servicios", label: "Servicios" },
+  { key: "transporte", label: "Transporte" },
+  { key: "compra_menor", label: "Compra menor" },
+  { key: "personal", label: "Personal" },
+  { key: "mantenimiento", label: "Mantenimiento" },
+  { key: "otros", label: "Otros" },
+];
+
+const operatingExpenseMethods: Array<{ key: TurquesaOperatingExpenseMethod; label: string }> = [
+  { key: "cash", label: "Efectivo" },
+  { key: "transfer", label: "Transferencia" },
+  { key: "card", label: "Tarjeta" },
+  { key: "pending", label: "Pendiente" },
+];
+
 const currency = (value: number) =>
   new Intl.NumberFormat("es-DO", { style: "currency", currency: "DOP", maximumFractionDigits: 0 }).format(value);
 
@@ -257,6 +284,14 @@ function errorMessage(error: unknown) {
 
 function paymentLabel(method: PaymentMethod) {
   return paymentMethods.find((item) => item.key === method)?.label || "Tarjeta";
+}
+
+function operatingExpenseCategoryLabel(category: string) {
+  return operatingExpenseCategories.find((item) => item.key === category)?.label || category || "Otros";
+}
+
+function operatingExpenseMethodLabel(method: TurquesaOperatingExpenseMethod) {
+  return operatingExpenseMethods.find((item) => item.key === method)?.label || "Efectivo";
 }
 
 function aiRiskLabel(risk?: TurquesaAIResult["riskLevel"]) {
@@ -438,6 +473,14 @@ export default function TurquesaRestaurantOS() {
     countedCash: String(expectedShiftCash(freshDemoSnapshot().shift)),
     notes: "",
   });
+  const [operatingExpenseForm, setOperatingExpenseForm] = useState<OperatingExpenseFormState>({
+    description: "Pago de local",
+    category: "local",
+    amount: "",
+    method: "transfer",
+    responsible: "Administracion",
+    note: "",
+  });
 
   const tables = snapshot.tables;
   const menuItems = snapshot.menuItems;
@@ -446,6 +489,7 @@ export default function TurquesaRestaurantOS() {
   const inventory = snapshot.inventory;
   const recipeIngredients = snapshot.recipeIngredients;
   const purchaseRequests = snapshot.purchaseRequests;
+  const operatingExpenses = snapshot.operatingExpenses;
   const wifiLeads = snapshot.wifiLeads;
 
   const selectedTable = useMemo(
@@ -660,6 +704,7 @@ export default function TurquesaRestaurantOS() {
     const criticalInventory = inventory.filter((item) => item.trend === "critico");
     const lowInventory = inventory.filter((item) => item.trend === "bajo");
     const suggestedItems = suggestedPurchaseItems(inventory);
+    const operatingExpenseTotal = operatingExpenses.reduce((sum, expense) => sum + expense.amount, 0);
     const generatedAt = new Date();
     const rows: Array<Array<string | number>> = [
       ["Turquesa Restaurante OS", "Reporte de turno"],
@@ -669,6 +714,7 @@ export default function TurquesaRestaurantOS() {
       [],
       ["Resumen", "Valor"],
       ["Venta cobrada", paidTotal],
+      ["Gastos sin factura", operatingExpenseTotal],
       ["Saldo en mesas abiertas", openBalance],
       ["Ventas proyectadas", snapshot.shift.projectedSales],
       ["Mesas abiertas", openTablesNow.length],
@@ -680,6 +726,15 @@ export default function TurquesaRestaurantOS() {
       ["Efectivo", snapshot.shift.cashSales, percent(snapshot.shift.cashSales, paidTotal)],
       ["Tarjeta", snapshot.shift.cardSales, percent(snapshot.shift.cardSales, paidTotal)],
       ["Transferencia", snapshot.shift.transferSales, percent(snapshot.shift.transferSales, paidTotal)],
+      [],
+      ["Gastos sin factura", "Categoria", "Metodo", "Monto", "Responsable"],
+      ...operatingExpenses.map((expense) => [
+        expense.description,
+        expense.category,
+        operatingExpenseMethodLabel(expense.method),
+        expense.amount,
+        expense.responsible,
+      ]),
       [],
       ["Inventario", "Cantidad"],
       ["Criticos", criticalInventory.length],
@@ -1197,6 +1252,85 @@ export default function TurquesaRestaurantOS() {
       setMessage(payload.message || "Solicitud de compra preparada.");
     } catch (error) {
       createPurchaseRequestLocal(errorMessage(error));
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  function createOperatingExpenseLocal(reason: string) {
+    const description = operatingExpenseForm.description.trim();
+    const amount = formNumber(operatingExpenseForm.amount);
+    if (!description) {
+      setMessage("Escribe el concepto del gasto sin factura.");
+      setActiveView("contabilidad");
+      return;
+    }
+    if (amount <= 0) {
+      setMessage("Escribe un monto valido para el gasto sin factura.");
+      setActiveView("contabilidad");
+      return;
+    }
+
+    const code = `GSF-${String(Math.floor(1000 + Math.random() * 9000))}`;
+    const nextExpense: TurquesaOperatingExpense = {
+      id: `local-expense-${Date.now()}`,
+      code,
+      category: operatingExpenseCategoryLabel(operatingExpenseForm.category),
+      description,
+      amount,
+      method: operatingExpenseForm.method,
+      responsible: operatingExpenseForm.responsible.trim() || "Caja",
+      note: operatingExpenseForm.note.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    const nextMessage = `Modo demo: ${code} registrado sin factura por ${currency(amount)}. ${reason}`;
+    setSnapshot((current) => ({
+      ...current,
+      source: "demo",
+      message: nextMessage,
+      generatedAt: new Date().toISOString(),
+      shift:
+        nextExpense.method === "cash"
+          ? {
+              ...current.shift,
+              expectedCashDrawer: Math.max(0, Math.round((current.shift.expectedCashDrawer - amount) * 100) / 100),
+            }
+          : current.shift,
+      operatingExpenses: [nextExpense, ...current.operatingExpenses].slice(0, 12),
+    }));
+    setOperatingExpenseForm((current) => ({ ...current, amount: "", note: "" }));
+    setActiveView("contabilidad");
+    setMessage(nextMessage);
+  }
+
+  async function createOperatingExpense() {
+    const amount = formNumber(operatingExpenseForm.amount);
+    const description = operatingExpenseForm.description.trim();
+    setActiveView("contabilidad");
+    if (!description) {
+      setMessage("Escribe el concepto del gasto sin factura.");
+      return;
+    }
+    if (amount <= 0) {
+      setMessage("Escribe un monto valido para el gasto sin factura.");
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const payload = await postOperation({
+        action: "create_uninvoiced_expense",
+        description,
+        category: operatingExpenseForm.category,
+        amount,
+        method: operatingExpenseForm.method,
+        responsible: operatingExpenseForm.responsible,
+        note: operatingExpenseForm.note,
+      });
+      setOperatingExpenseForm((current) => ({ ...current, amount: "", note: "" }));
+      setMessage(payload.message || "Gasto sin factura registrado en contabilidad.");
+    } catch (error) {
+      createOperatingExpenseLocal(errorMessage(error));
     } finally {
       setSyncing(false);
     }
@@ -1941,9 +2075,13 @@ export default function TurquesaRestaurantOS() {
                   snapshot={snapshot}
                   tables={tables}
                   purchaseRequests={purchaseRequests}
+                  operatingExpenses={operatingExpenses}
                   suggestedItems={suggestedPurchase}
+                  expenseForm={operatingExpenseForm}
                   countedCash={closureForm.countedCash}
                   notes={closureForm.notes}
+                  onChangeExpense={setOperatingExpenseForm}
+                  onCreateExpense={() => void createOperatingExpense()}
                   onChangeClosure={setClosureForm}
                   onClose={() => void closeShift()}
                   onExport={exportTurnReport}
@@ -2882,9 +3020,13 @@ function AccountingCommandPanel({
   snapshot,
   tables,
   purchaseRequests,
+  operatingExpenses,
   suggestedItems,
+  expenseForm,
   countedCash,
   notes,
+  onChangeExpense,
+  onCreateExpense,
   onChangeClosure,
   onClose,
   onExport,
@@ -2893,9 +3035,13 @@ function AccountingCommandPanel({
   snapshot: TurquesaSnapshot;
   tables: TurquesaTable[];
   purchaseRequests: TurquesaPurchaseRequest[];
+  operatingExpenses: TurquesaOperatingExpense[];
   suggestedItems: TurquesaPurchaseRequestItem[];
+  expenseForm: OperatingExpenseFormState;
   countedCash: string;
   notes: string;
+  onChangeExpense: (value: OperatingExpenseFormState) => void;
+  onCreateExpense: () => void;
   onChangeClosure: (value: ClosureFormState) => void;
   onClose: () => void;
   onExport: () => void;
@@ -2909,11 +3055,18 @@ function AccountingCommandPanel({
     .filter((request) => request.status !== "received" && request.status !== "cancelled")
     .reduce((sum, request) => sum + request.total, 0);
   const suggestedTotal = purchaseTotal(suggestedItems);
-  const accountsPayable = outstandingPurchases + suggestedTotal;
+  const operatingExpenseTotal = operatingExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const pendingExpenseTotal = operatingExpenses
+    .filter((expense) => expense.method === "pending")
+    .reduce((sum, expense) => sum + expense.amount, 0);
+  const cashExpenseTotal = operatingExpenses
+    .filter((expense) => expense.method === "cash")
+    .reduce((sum, expense) => sum + expense.amount, 0);
+  const accountsPayable = outstandingPurchases + suggestedTotal + pendingExpenseTotal;
   const expectedCash = expectedShiftCash(shift);
   const counted = formNumber(countedCash || String(expectedCash));
   const difference = Math.round((counted - expectedCash) * 100) / 100;
-  const netOperating = paidTotal - accountsPayable;
+  const netOperating = paidTotal - accountsPayable - operatingExpenseTotal;
   const paymentRows = [
     { label: "Efectivo", amount: shift.cashSales, tone: styles.cashTone },
     { label: "Tarjeta", amount: shift.cardSales, tone: styles.cardTone },
@@ -2927,7 +3080,7 @@ function AccountingCommandPanel({
           <span>Libro del turno</span>
           <strong>{currency(paidTotal)}</strong>
           <p>
-            Ventas cobradas, ITBIS, 10% servicio, caja esperada, cuentas por pagar y auditoria de cierre.
+            Ventas cobradas, ITBIS, 10% servicio, gastos sin factura, caja esperada y auditoria de cierre.
           </p>
         </div>
         <div className={styles.commandHeroActions}>
@@ -2943,8 +3096,8 @@ function AccountingCommandPanel({
       <div className={styles.commandKpis}>
         <CommandKpi label="Caja abierta" value={currency(shift.cashOpen)} note="Ventas cobradas" tone="teal" />
         <CommandKpi label="ITBIS" value={currency(shift.taxTotal)} note="18% registrado" tone="amber" />
-        <CommandKpi label="10% servicio" value={currency(shift.serviceChargeTotal)} note="Propina/servicio" tone="green" />
-        <CommandKpi label="CXP" value={currency(accountsPayable)} note="Compras + sugeridas" tone={accountsPayable ? "amber" : "green"} />
+        <CommandKpi label="Gastos s/factura" value={currency(operatingExpenseTotal)} note={`${operatingExpenses.length} registro(s)`} tone={operatingExpenseTotal ? "red" : "green"} />
+        <CommandKpi label="CXP" value={currency(accountsPayable)} note="Compras + gastos pendientes" tone={accountsPayable ? "amber" : "green"} />
       </div>
 
       <section className={styles.commandGrid}>
@@ -2971,6 +3124,84 @@ function AccountingCommandPanel({
 
         <div className={styles.commandBlock}>
           <header>
+            <span>Gasto sin factura</span>
+            <strong>Registro interno</strong>
+          </header>
+          <form
+            className={styles.expenseForm}
+            onSubmit={(event) => {
+              event.preventDefault();
+              onCreateExpense();
+            }}
+          >
+            <label className={styles.expenseFull}>
+              Concepto
+              <input
+                value={expenseForm.description}
+                onChange={(event) => onChangeExpense({ ...expenseForm, description: event.target.value })}
+                placeholder="Pago de local, hielo, transporte..."
+              />
+            </label>
+            <label>
+              Monto
+              <input
+                value={expenseForm.amount}
+                onChange={(event) => onChangeExpense({ ...expenseForm, amount: event.target.value })}
+                inputMode="decimal"
+                placeholder="0.00"
+              />
+            </label>
+            <label>
+              Categoria
+              <select
+                value={expenseForm.category}
+                onChange={(event) => onChangeExpense({ ...expenseForm, category: event.target.value })}
+              >
+                {operatingExpenseCategories.map((category) => (
+                  <option value={category.key} key={category.key}>
+                    {category.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Metodo
+              <select
+                value={expenseForm.method}
+                onChange={(event) => onChangeExpense({ ...expenseForm, method: event.target.value as TurquesaOperatingExpenseMethod })}
+              >
+                {operatingExpenseMethods.map((method) => (
+                  <option value={method.key} key={method.key}>
+                    {method.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Responsable
+              <input
+                value={expenseForm.responsible}
+                onChange={(event) => onChangeExpense({ ...expenseForm, responsible: event.target.value })}
+                placeholder="Caja / Administracion"
+              />
+            </label>
+            <label className={styles.expenseFull}>
+              Nota
+              <textarea
+                value={expenseForm.note}
+                onChange={(event) => onChangeExpense({ ...expenseForm, note: event.target.value })}
+                rows={2}
+                placeholder="Sin NCF, soporte por recibo simple, pago recurrente..."
+              />
+            </label>
+            <button type="submit" disabled={disabled}>
+              <Plus size={15} /> Registrar gasto
+            </button>
+          </form>
+        </div>
+
+        <div className={styles.commandBlock}>
+          <header>
             <span>Mayor contable</span>
             <strong>Asientos del turno</strong>
           </header>
@@ -2978,9 +3209,35 @@ function AccountingCommandPanel({
             <LedgerRow label="Ventas cobradas" debit={currency(paidTotal)} credit="-" />
             <LedgerRow label="ITBIS por pagar" debit="-" credit={currency(shift.taxTotal)} />
             <LedgerRow label="10% servicio" debit="-" credit={currency(shift.serviceChargeTotal)} />
+            <LedgerRow label="Gastos sin factura" debit={currency(operatingExpenseTotal)} credit="Control interno" />
+            <LedgerRow label="Efectivo usado en gastos" debit="-" credit={currency(cashExpenseTotal)} />
             <LedgerRow label="Cuentas por pagar" debit="-" credit={currency(accountsPayable)} />
             <LedgerRow label="Saldo mesas abiertas" debit={currency(openBalance)} credit="Pendiente" />
             <LedgerRow label="Resultado operativo" debit={currency(netOperating)} credit={netOperating >= 0 ? "Estimado" : "Revisar"} />
+          </div>
+        </div>
+
+        <div className={styles.commandBlock}>
+          <header>
+            <span>Sin factura</span>
+            <strong>Ultimos gastos</strong>
+          </header>
+          <div className={styles.commandRows}>
+            {operatingExpenses.length ? (
+              operatingExpenses.map((expense) => (
+                <div className={styles.commandRow} key={expense.id}>
+                  <div>
+                    <strong>{expense.description}</strong>
+                    <span>
+                      {expense.code} / {expense.category} / {operatingExpenseMethodLabel(expense.method)}
+                    </span>
+                  </div>
+                  <b>{currency(expense.amount)}</b>
+                </div>
+              ))
+            ) : (
+              <div className={styles.emptyState}>No hay gastos sin factura en este turno.</div>
+            )}
           </div>
         </div>
 
@@ -2991,6 +3248,7 @@ function AccountingCommandPanel({
           </header>
           <div className={styles.cashAudit}>
             <Line label="Efectivo esperado" value={currency(expectedCash)} />
+            <Line label="Gastos efectivo s/factura" value={currency(cashExpenseTotal)} />
             <Line label="Efectivo contado" value={currency(counted)} />
             <Line label="Diferencia" value={currency(difference)} strong />
             <label>
