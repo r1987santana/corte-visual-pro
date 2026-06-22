@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import TurquesaReservationForm from "./TurquesaReservationForm";
 import styles from "./TurquesaPublicSite.module.css";
 
 export const metadata: Metadata = {
@@ -151,14 +152,13 @@ export default function TurquesaPublicSite() {
           <p className={styles.label}>Reservas</p>
           <h2>Planifica tu visita.</h2>
           <p>
-            Para reservar, contacta al equipo de Turquesa por telefono o correo
-            y coordinamos la mesa ideal.
+            Solicita disponibilidad desde aqui. El equipo de Turquesa recibira
+            la reserva en el sistema y confirmara la mesa antes de dejarla firme.
           </p>
         </div>
         <div className={styles.reserveCard}>
           <strong>Turquesa Restaurante</strong>
-          <a href="tel:+18297550107">Llamar ahora</a>
-          <a href="mailto:turquesarestaurantbayahibe@gmail.com">Enviar correo</a>
+          <TurquesaReservationForm />
         </div>
       </section>
     </main>

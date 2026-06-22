@@ -1,6 +1,7 @@
 export type TurquesaTableStatus = "free" | "open" | "reserved" | "attention";
 export type TurquesaTicketStatus = "new" | "cooking" | "ready" | "served";
 export type TurquesaInventoryTrend = "critico" | "bajo" | "ok";
+export type TurquesaReservationStatus = "pending" | "confirmed" | "seated" | "cancelled" | "no_show";
 
 export type TurquesaTable = {
   id: string;
@@ -41,11 +42,18 @@ export type TurquesaKitchenTicket = {
 };
 
 export type TurquesaReservation = {
+  id?: string;
+  date?: string;
   time: string;
   name: string;
   guests: number;
   area: string;
   note: string;
+  status?: TurquesaReservationStatus;
+  source?: string;
+  phone?: string;
+  email?: string;
+  createdAt?: string;
 };
 
 export type TurquesaInventoryItem = {
@@ -200,9 +208,9 @@ export const TURQUESA_DEMO_SNAPSHOT: TurquesaSnapshot = {
     { id: "F-018", table: "M1", items: ["Ceviche Turquesa"], station: "Fria", minutes: 6, status: "cooking" },
   ],
   reservations: [
-    { time: "7:30 PM", name: "Familia Perez", guests: 5, area: "Terraza mar", note: "Cumpleanos" },
-    { time: "8:30 PM", name: "Mesa hotel", guests: 4, area: "Salon", note: "Confirmada por WhatsApp" },
-    { time: "9:15 PM", name: "VIP Cadaques", guests: 10, area: "Privado", note: "Menu fijo" },
+    { id: "RES-DEMO-001", date: "Hoy", time: "7:30 PM", name: "Familia Perez", guests: 5, area: "Terraza mar", note: "Cumpleanos", status: "confirmed", source: "Directa" },
+    { id: "RES-DEMO-002", date: "Hoy", time: "8:30 PM", name: "Mesa hotel", guests: 4, area: "Salon", note: "Confirmada por WhatsApp", status: "confirmed", source: "WhatsApp" },
+    { id: "RES-DEMO-003", date: "Hoy", time: "9:15 PM", name: "VIP Cadaques", guests: 10, area: "Privado", note: "Menu fijo", status: "pending", source: "Web Turquesa", phone: "809-000-0000" },
   ],
   inventory: [
     { item: "Langosta", onHand: 9, unit: "lb", min: 12, trend: "critico", avgCost: 450, supplier: "Proveedor costa" },

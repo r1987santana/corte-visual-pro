@@ -314,6 +314,29 @@ function ticketLabel(status: TurquesaKitchenTicket["status"]) {
   return "En cocina";
 }
 
+function reservationKey(item: TurquesaReservation) {
+  return item.id || `${item.date || ""}-${item.time}-${item.name}`;
+}
+
+function reservationStatusLabel(status?: TurquesaReservation["status"]) {
+  if (status === "pending") return "Pendiente";
+  if (status === "cancelled") return "Sin disponibilidad";
+  if (status === "seated") return "Sentada";
+  if (status === "no_show") return "No-show";
+  return "Confirmada";
+}
+
+function reservationStatusClass(status?: TurquesaReservation["status"]) {
+  if (status === "pending") return styles.reservationStatus_pending;
+  if (status === "cancelled" || status === "no_show") return styles.reservationStatus_cancelled;
+  if (status === "seated") return styles.reservationStatus_seated;
+  return styles.reservationStatus_confirmed;
+}
+
+function reservationTimeLabel(item: TurquesaReservation) {
+  return [item.date, item.time].filter(Boolean).join(" / ");
+}
+
 function clampGuestCount(value: unknown, fallback = 1) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return Math.max(1, Math.min(20, fallback));
@@ -1373,6 +1396,70 @@ export default function TurquesaRestaurantOS() {
       setMessage(payload.message || `Reserva creada para ${guestName}.`);
     } catch (error) {
       createReservationLocal(errorMessage(error));
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  function updateReservationStatusLocal(
+    reservation: TurquesaReservation,
+    status: NonNullable<TurquesaReservation["status"]>,
+    reason: string
+  ) {
+    const nextMessage =
+      status === "confirmed"
+        ? `Modo demo: reserva de ${reservation.name} confirmada. ${reason}`
+        : `Modo demo: reserva de ${reservation.name} marcada sin disponibilidad. ${reason}`;
+
+    setSnapshot((current) => ({
+      ...current,
+      source: "demo",
+      message: nextMessage,
+      generatedAt: new Date().toISOString(),
+      reservations: current.reservations.map((item) =>
+        reservationKey(item) === reservationKey(reservation)
+          ? {
+              ...item,
+              status,
+              note:
+                status === "cancelled"
+                  ? item.note
+                    ? `${item.note} / Sin disponibilidad`
+                    : "Sin disponibilidad"
+                  : item.note,
+            }
+          : item
+      ),
+    }));
+    setActiveView("reservas");
+    setMessage(nextMessage);
+  }
+
+  async function updateReservationStatus(
+    reservation: TurquesaReservation,
+    status: NonNullable<TurquesaReservation["status"]>
+  ) {
+    if (!reservation.id) {
+      updateReservationStatusLocal(reservation, status, "Reserva local sin id de base.");
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const note =
+        status === "cancelled" && reservation.note && !reservation.note.includes("Sin disponibilidad")
+          ? `${reservation.note} / Sin disponibilidad`
+          : reservation.note;
+      const payload = await postOperation({
+        action: "update_reservation_status",
+        reservationId: reservation.id,
+        status,
+        note,
+      });
+      setActiveView("reservas");
+      setMessage(payload.message || `Reserva ${reservation.name} actualizada.`);
+    } catch (error) {
+      updateReservationStatusLocal(reservation, status, errorMessage(error));
     } finally {
       setSyncing(false);
     }
@@ -2603,15 +2690,41 @@ export default function TurquesaRestaurantOS() {
               />
               <div className={styles.compactList}>
                 {reservations.map((item) => (
-                  <div className={styles.compactRow} key={`${item.time}-${item.name}`}>
+                  <div className={`${styles.compactRow} ${styles.reservationRow}`} key={reservationKey(item)}>
                     <Clock3 size={16} />
                     <div>
                       <strong>
-                        {item.time} / {item.name}
+                        {reservationTimeLabel(item)} / {item.name}
                       </strong>
                       <span>
-                        {item.guests} pax / {item.area} / {item.note}
+                        {item.guests} pax / {item.area} / {item.source || "Directa"}
+                        {item.phone ? ` / ${item.phone}` : ""}
+                        {item.email ? ` / ${item.email}` : ""}
                       </span>
+                      {item.note ? <em className={styles.reservationNote}>{item.note}</em> : null}
+                    </div>
+                    <div className={styles.reservationSide}>
+                      <b className={`${styles.reservationStatus} ${reservationStatusClass(item.status)}`}>
+                        {reservationStatusLabel(item.status)}
+                      </b>
+                      {item.status === "pending" ? (
+                        <div className={styles.reservationActions}>
+                          <button
+                            type="button"
+                            onClick={() => void updateReservationStatus(item, "confirmed")}
+                            disabled={syncing}
+                          >
+                            Confirmar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void updateReservationStatus(item, "cancelled")}
+                            disabled={syncing}
+                          >
+                            Sin disponibilidad
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ))}

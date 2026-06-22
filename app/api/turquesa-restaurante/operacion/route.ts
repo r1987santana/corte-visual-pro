@@ -239,6 +239,14 @@ function normalizeWifiLeadStatus(value: unknown): WifiLeadStatus {
   return "cliente";
 }
 
+function normalizeReservationStatus(value: unknown) {
+  const status = clean(value).toLowerCase();
+  if (status === "pending" || status === "confirmed" || status === "seated" || status === "cancelled" || status === "no_show") {
+    return status;
+  }
+  return "pending";
+}
+
 function reservationIso(dateValue: unknown, timeValue: unknown) {
   const today = new Date().toISOString().slice(0, 10);
   const rawDate = clean(dateValue) || today;
@@ -269,6 +277,16 @@ function timeLabel(value: string | null | undefined) {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
+  }).format(date);
+}
+
+function dateLabel(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("es-DO", {
+    day: "2-digit",
+    month: "short",
   }).format(date);
 }
 
@@ -346,6 +364,10 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
   }
 
   const shift = await getOpenShift(supabase, restaurant.id);
+  const reservationsStart = new Date();
+  reservationsStart.setHours(0, 0, 0, 0);
+  const reservationsEnd = new Date(reservationsStart);
+  reservationsEnd.setDate(reservationsEnd.getDate() + 14);
 
   const [
     areasResult,
@@ -376,12 +398,12 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
       .order("sort_order", { ascending: true }),
     supabase
       .from("turquesa_reservations")
-      .select("id,reservation_at,guest_name,pax,source,status,note,table_id")
+      .select("id,reservation_at,guest_name,pax,source,status,note,table_id,phone,email,created_at")
       .eq("restaurant_id", restaurant.id)
-      .gte("reservation_at", new Date(new Date().setHours(0, 0, 0, 0)).toISOString())
-      .lt("reservation_at", new Date(new Date().setHours(24, 0, 0, 0)).toISOString())
+      .gte("reservation_at", reservationsStart.toISOString())
+      .lt("reservation_at", reservationsEnd.toISOString())
       .order("reservation_at", { ascending: true })
-      .limit(20),
+      .limit(40),
     supabase
       .from("turquesa_inventory_items")
       .select("id,item_name,unit,on_hand,minimum_stock,reorder_stock,avg_cost,supplier")
@@ -575,11 +597,18 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
     })),
     kitchenTickets,
     reservations: (reservationsResult.data || []).map((item: any) => ({
+      id: item.id,
+      date: dateLabel(item.reservation_at),
       time: timeLabel(item.reservation_at),
       name: item.guest_name,
       guests: Number(item.pax || 0),
-      area: tableById.get(item.table_id)?.code || item.source || "Directa",
-      note: item.note || item.status || "",
+      area: tableById.get(item.table_id)?.code || "Sin mesa asignada",
+      note: item.note || "",
+      status: normalizeReservationStatus(item.status),
+      source: item.source || "Directa",
+      phone: item.phone || "",
+      email: item.email || "",
+      createdAt: item.created_at || item.reservation_at,
     })),
     inventory: (inventoryResult.data || []).map((item: any) => {
       const onHand = num(item.on_hand);
@@ -1492,6 +1521,51 @@ async function createReservation(body: OperationBody, context: DbContext) {
   });
 }
 
+async function updateReservationStatus(body: OperationBody, context: DbContext) {
+  const reservationId = clean(body?.reservationId);
+  const status = normalizeReservationStatus(body?.status);
+  const note = clean(body?.note);
+
+  if (!reservationId) return NextResponse.json({ ok: false, error: "Reserva requerida." }, { status: 400 });
+
+  const restaurant = await getRestaurant(context.supabase);
+  if (!restaurant) return NextResponse.json({ ok: false, error: "Ejecuta primero scripts/turquesa-restaurant-core.sql." }, { status: 503 });
+
+  const patch: Record<string, unknown> = {
+    status,
+    updated_at: new Date().toISOString(),
+  };
+  if (note) patch.note = note;
+
+  const { data: reservation, error } = await context.supabase
+    .from("turquesa_reservations")
+    .update(patch)
+    .eq("restaurant_id", restaurant.id)
+    .eq("id", reservationId)
+    .select("guest_name")
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!reservation) return NextResponse.json({ ok: false, error: "Reserva no encontrada." }, { status: 404 });
+
+  const label =
+    status === "confirmed"
+      ? "confirmada"
+      : status === "cancelled"
+        ? "marcada sin disponibilidad"
+        : status === "seated"
+          ? "sentada"
+          : status === "no_show"
+            ? "marcada no-show"
+            : "pendiente";
+
+  return NextResponse.json({
+    ok: true,
+    message: `Reserva de ${reservation.guest_name} ${label}.`,
+    snapshot: await readSnapshot(context.supabase),
+  });
+}
+
 async function adjustInventory(body: OperationBody, context: DbContext) {
   const itemName = clean(body?.itemName);
   const delta = Number(body?.delta || 0);
@@ -2163,6 +2237,7 @@ export async function POST(request: Request) {
     if (action === "create_uninvoiced_expense") return await createUninvoicedExpense(body, context);
     if (action === "close_order") return await closeOrder(body, context);
     if (action === "create_reservation") return await createReservation(body, context);
+    if (action === "update_reservation_status") return await updateReservationStatus(body, context);
     if (action === "adjust_inventory") return await adjustInventory(body, context);
     if (action === "update_inventory_cost") return await updateInventoryCost(body, context);
     if (action === "create_purchase_request") return await createPurchaseRequest(body, context);

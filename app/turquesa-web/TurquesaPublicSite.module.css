@@ -349,7 +349,7 @@
 
 .reserveCard {
   display: grid;
-  gap: 12px;
+  gap: 16px;
   padding: 24px;
 }
 
@@ -358,20 +358,103 @@
   font-size: 24px;
 }
 
-.reserveCard a {
-  min-height: 44px;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--sea-700);
-  color: var(--white);
-  font-weight: 900;
+.reserveForm {
+  display: grid;
+  gap: 12px;
 }
 
-.reserveCard a + a {
-  background: var(--stone-100);
-  color: var(--sea-950);
+.reserveGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.reserveGrid:nth-of-type(2) {
+  grid-template-columns: 1fr 0.78fr 0.62fr;
+}
+
+.reserveField {
+  display: grid;
+  gap: 6px;
+}
+
+.reserveField span {
+  color: var(--sea-800);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.reserveField input,
+.reserveField textarea {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--stone-200);
+  border-radius: 8px;
+  background: #fffdf9;
+  color: var(--ink);
+  padding: 0 12px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  outline: 0;
+}
+
+.reserveField textarea {
+  min-height: 86px;
+  resize: vertical;
+  padding-top: 11px;
+  line-height: 1.45;
+}
+
+.reserveField input:focus,
+.reserveField textarea:focus {
+  border-color: var(--sea-500);
+  box-shadow: 0 0 0 3px rgba(33, 169, 179, 0.16);
+}
+
+.reserveForm button {
+  min-height: 48px;
+  border: 1px solid var(--sea-700);
+  border-radius: 8px;
+  background: var(--sea-700);
+  color: var(--white);
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.reserveForm button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.reserveSuccess,
+.reserveError {
+  margin: 0 !important;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px !important;
+  font-weight: 800;
+  line-height: 1.35 !important;
+}
+
+.reserveSuccess {
+  background: rgba(11, 127, 136, 0.1);
+  color: var(--sea-800) !important;
+}
+
+.reserveError {
+  background: rgba(178, 75, 45, 0.1);
+  color: #9f3b23 !important;
+}
+
+.honeypot {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
 }
 
 @media (max-width: 900px) {
@@ -401,7 +484,9 @@
   .menuLayout,
   .galleryGrid,
   .location,
-  .reservation {
+  .reservation,
+  .reserveGrid,
+  .reserveGrid:nth-of-type(2) {
     grid-template-columns: 1fr;
   }
 

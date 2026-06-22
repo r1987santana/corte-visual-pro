@@ -2199,7 +2199,8 @@
 
 .quickForm button:disabled,
 .rowActions button:disabled,
-.leadActions button:disabled {
+.leadActions button:disabled,
+.reservationActions button:disabled {
   cursor: not-allowed;
   opacity: 0.62;
 }
@@ -4128,10 +4129,81 @@
   color: var(--teal);
 }
 
+.reservationRow {
+  grid-template-columns: 26px 1fr auto;
+  align-items: start;
+  padding: 8px 0;
+}
+
 .compactRow strong,
 .inventoryRow strong {
   display: block;
   font-size: 13px;
+}
+
+.reservationNote {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.reservationSide {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+}
+
+.reservationStatus {
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.reservationStatus_pending {
+  background: #fff4db;
+  color: #8a5700;
+}
+
+.reservationStatus_confirmed,
+.reservationStatus_seated {
+  background: #e6f8ee;
+  color: #087443;
+}
+
+.reservationStatus_cancelled {
+  background: #ffeceb;
+  color: #b32f25;
+}
+
+.reservationActions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.reservationActions button {
+  min-height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--charcoal);
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.reservationActions button:first-child {
+  border-color: rgba(8, 117, 125, 0.34);
+  color: var(--teal);
 }
 
 .inventoryRow {
@@ -4591,9 +4663,18 @@
     .commandRow,
     .formGrid,
     .expenseForm,
+    .reservationRow,
     .actionRow,
     .actionGrid {
     grid-template-columns: 1fr;
+  }
+
+  .reservationSide {
+    justify-items: start;
+  }
+
+  .reservationActions {
+    justify-content: flex-start;
   }
 
   .commandHeroActions {
