@@ -2186,6 +2186,149 @@
   box-shadow: 0 0 0 3px rgba(8, 117, 125, 0.1);
 }
 
+.spoilagePanel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.spoilageMode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.spoilageMode button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.spoilageModeActive {
+  border-color: var(--teal) !important;
+  background: rgba(8, 117, 125, 0.1) !important;
+  color: var(--teal) !important;
+}
+
+.spoilageGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.42fr);
+  gap: 8px;
+}
+
+.spoilageGrid label,
+.spoilageNote {
+  display: grid;
+  gap: 6px;
+}
+
+.spoilageGrid span,
+.spoilageNote span,
+.spoilageImpact span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.spoilageGrid input,
+.spoilageGrid select,
+.spoilageNote textarea {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfb;
+  color: var(--ink);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  outline: 0;
+}
+
+.spoilageNote textarea {
+  min-height: 72px;
+  padding-top: 9px;
+  line-height: 1.35;
+  resize: vertical;
+}
+
+.spoilageGrid input:focus,
+.spoilageGrid select:focus,
+.spoilageNote textarea:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(8, 117, 125, 0.1);
+}
+
+.spoilageImpact {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.spoilageImpact > div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(135deg, #ffffff, #f7fbfa);
+  padding: 10px;
+}
+
+.spoilageImpact strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--charcoal);
+  font-size: 17px;
+  font-weight: 950;
+}
+
+.spoilageLines,
+.spoilageHistory {
+  display: grid;
+  gap: 7px;
+}
+
+.spoilageLine,
+.spoilageHistoryRow {
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px 10px;
+}
+
+.spoilageLine span,
+.spoilageHistoryRow span,
+.spoilageHistory p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.spoilageLine b,
+.spoilageHistoryRow b {
+  font-size: 11px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.spoilageHistory > strong {
+  color: var(--charcoal);
+  font-size: 12px;
+  font-weight: 950;
+}
+
 .quickForm button {
   min-height: 40px;
   border: 1px solid var(--teal);
@@ -2198,6 +2341,10 @@
 }
 
 .quickForm button:disabled,
+.spoilageMode button:disabled,
+.spoilageGrid input:disabled,
+.spoilageGrid select:disabled,
+.spoilageNote textarea:disabled,
 .rowActions button:disabled,
 .leadActions button:disabled,
 .reservationActions button:disabled {

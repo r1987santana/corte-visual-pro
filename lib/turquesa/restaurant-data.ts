@@ -66,6 +66,19 @@ export type TurquesaInventoryItem = {
   supplier: string;
 };
 
+export type TurquesaSpoilageEvent = {
+  id: string;
+  item: string;
+  sourceType: "inventory" | "menu_item";
+  quantity: number;
+  unit: string;
+  reason: string;
+  cost: number;
+  responsible: string;
+  note: string;
+  createdAt: string;
+};
+
 export type TurquesaRecipeIngredient = {
   id: string;
   menuItem: string;
@@ -150,6 +163,7 @@ export type TurquesaSnapshot = {
   recipeIngredients: TurquesaRecipeIngredient[];
   purchaseRequests: TurquesaPurchaseRequest[];
   operatingExpenses: TurquesaOperatingExpense[];
+  spoilageEvents: TurquesaSpoilageEvent[];
   wifiLeads: TurquesaWifiLead[];
 };
 
@@ -268,6 +282,20 @@ export const TURQUESA_DEMO_SNAPSHOT: TurquesaSnapshot = {
       createdAt: "2026-06-21T21:05:00.000Z",
     },
   ],
+  spoilageEvents: [
+    {
+      id: "DEC-DEMO-001",
+      item: "Langosta",
+      sourceType: "inventory",
+      quantity: 1.5,
+      unit: "lb",
+      reason: "Materia prima en mal estado",
+      cost: 675,
+      responsible: "Cocina",
+      note: "Temperatura fuera de rango.",
+      createdAt: "2026-06-21T19:15:00.000Z",
+    },
+  ],
   wifiLeads: [
     { name: "Ana M.", time: "6:42 PM", source: "Wi-Fi", status: "nuevo" },
     { name: "Jean P.", time: "7:04 PM", source: "Wi-Fi", status: "promocion" },
@@ -291,6 +319,7 @@ export function freshDemoSnapshot(message = TURQUESA_DEMO_SNAPSHOT.message): Tur
       items: request.items.map((item) => ({ ...item })),
     })),
     operatingExpenses: TURQUESA_DEMO_SNAPSHOT.operatingExpenses.map((item) => ({ ...item })),
+    spoilageEvents: TURQUESA_DEMO_SNAPSHOT.spoilageEvents.map((item) => ({ ...item })),
     wifiLeads: TURQUESA_DEMO_SNAPSHOT.wifiLeads.map((item) => ({ ...item })),
   };
 }

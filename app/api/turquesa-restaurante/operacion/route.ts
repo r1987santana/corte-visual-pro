@@ -9,6 +9,7 @@ import {
   TurquesaPurchaseRequest,
   TurquesaRecipeIngredient,
   TurquesaSnapshot,
+  TurquesaSpoilageEvent,
   TurquesaTableStatus,
   freshDemoSnapshot,
 } from "@/lib/turquesa/restaurant-data";
@@ -28,6 +29,7 @@ type OperationBody = Record<string, any>;
 type PaymentMethod = "cash" | "card" | "transfer";
 type ExpensePaymentMethod = PaymentMethod | "pending";
 type WifiLeadStatus = "nuevo" | "promocion" | "cliente" | "no_contactar";
+type SpoilageSourceType = "inventory" | "menu_item";
 type StaffAccessRole = "waiter" | "supervisor";
 type StaffAccessSession = {
   role: StaffAccessRole;
@@ -163,6 +165,35 @@ function normalizeExpenseMethod(value: unknown): ExpensePaymentMethod {
   const method = clean(value).toLowerCase();
   if (method === "cash" || method === "card" || method === "transfer" || method === "pending") return method;
   return "cash";
+}
+
+function normalizeSpoilageSourceType(value: unknown): SpoilageSourceType {
+  const sourceType = clean(value).toLowerCase();
+  if (
+    sourceType === "menu_item" ||
+    sourceType === "menu" ||
+    sourceType === "plato" ||
+    sourceType === "service" ||
+    sourceType === "prepared_food"
+  ) {
+    return "menu_item";
+  }
+  return "inventory";
+}
+
+const spoilageReasonLabels: Record<string, string> = {
+  spoiled_raw: "Materia prima en mal estado",
+  expired: "Producto vencido",
+  service_error: "Error de servicio",
+  customer_return: "Producto devuelto",
+  breakage: "Rotura o derrame",
+  quality_control: "Control de calidad",
+  other: "Otro decomiso",
+};
+
+function normalizeSpoilageReason(value: unknown) {
+  const key = clean(value).toLowerCase();
+  return Object.prototype.hasOwnProperty.call(spoilageReasonLabels, key) ? key : "other";
 }
 
 function paymentMethodLabel(method: PaymentMethod) {
@@ -378,6 +409,7 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
     recipeIngredientsResult,
     purchaseRequestsResult,
     operatingExpensesResult,
+    spoilageEventsResult,
     leadsResult,
   ] = await Promise.all([
     supabase
@@ -438,6 +470,13 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
           .limit(12)
       : Promise.resolve({ data: [], error: null }),
     supabase
+      .from("turquesa_events")
+      .select("id,description,payload,actor_email,created_at")
+      .eq("restaurant_id", restaurant.id)
+      .eq("event_type", "inventory_spoilage_recorded")
+      .order("created_at", { ascending: false })
+      .limit(8),
+    supabase
       .from("turquesa_wifi_leads")
       .select("full_name,source,status,last_seen_at,visits")
       .eq("restaurant_id", restaurant.id)
@@ -454,6 +493,7 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
     recipeIngredientsResult,
     purchaseRequestsResult,
     operatingExpensesResult,
+    spoilageEventsResult,
     leadsResult,
   ]) {
     if (result.error) throw result.error;
@@ -557,6 +597,22 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
     .filter((expense) => expense.method === "cash")
     .reduce((sum, expense) => sum + expense.amount, 0);
   const expectedCashDrawer = money(openingCash + cashSales - cashOperatingExpenses);
+  const spoilageEvents: TurquesaSpoilageEvent[] = ((spoilageEventsResult.data || []) as any[]).map((event) => {
+    const payload = event.payload || {};
+    const sourceType = normalizeSpoilageSourceType(payload.source_type);
+    return {
+      id: event.id,
+      item: clean(payload.item_name) || clean(payload.menu_item_name) || clean(event.description) || "Decomiso",
+      sourceType,
+      quantity: quantity(payload.quantity),
+      unit: clean(payload.unit) || (sourceType === "menu_item" ? "plato" : "u"),
+      reason: clean(payload.reason_label) || spoilageReasonLabels[normalizeSpoilageReason(payload.reason_key)],
+      cost: money(payload.total_cost),
+      responsible: clean(payload.responsible) || clean(event.actor_email) || "Equipo",
+      note: clean(payload.note),
+      createdAt: event.created_at || new Date().toISOString(),
+    };
+  });
 
   return {
     source: "database",
@@ -648,6 +704,7 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
       })),
     })),
     operatingExpenses,
+    spoilageEvents,
     wifiLeads: (leadsResult.data || []).map((lead: any) => ({
       name: lead.full_name,
       time: timeLabel(lead.last_seen_at),
@@ -1566,6 +1623,232 @@ async function updateReservationStatus(body: OperationBody, context: DbContext) 
   });
 }
 
+async function recordSpoilage(body: OperationBody, context: DbContext) {
+  const sourceType = normalizeSpoilageSourceType(body?.sourceType);
+  const itemName = clean(body?.itemName);
+  const menuItemName = clean(body?.menuItemName || body?.itemName);
+  const requestedQty = quantity(body?.quantity);
+  const reasonKey = normalizeSpoilageReason(body?.reason);
+  const reasonLabel = spoilageReasonLabels[reasonKey];
+  const responsible = clean(body?.responsible) || context.actorEmail || "Equipo";
+  const note = clean(body?.note);
+
+  if (requestedQty <= 0) return NextResponse.json({ ok: false, error: "Cantidad de decomiso requerida." }, { status: 400 });
+  if (sourceType === "inventory" && !itemName) {
+    return NextResponse.json({ ok: false, error: "Materia prima requerida para decomiso." }, { status: 400 });
+  }
+  if (sourceType === "menu_item" && !menuItemName) {
+    return NextResponse.json({ ok: false, error: "Plato requerido para decomiso." }, { status: 400 });
+  }
+
+  const restaurant = await getRestaurant(context.supabase);
+  if (!restaurant) return NextResponse.json({ ok: false, error: "Ejecuta primero scripts/turquesa-restaurant-core.sql." }, { status: 503 });
+  const shift = await getOpenShift(context.supabase, restaurant.id);
+  const now = new Date().toISOString();
+  const spoilageCode = `DEC-${now.slice(0, 10).replace(/\D/g, "")}-${String(Date.now()).slice(-5)}`;
+
+  let entityType = "turquesa_inventory_items";
+  let entityId = "";
+  let displayItem = itemName;
+  let unit = "u";
+  const affectedLines: Array<{
+    inventory: any;
+    quantity: number;
+    previousOnHand: number;
+    nextOnHand: number;
+    unit: string;
+    cost: number;
+  }> = [];
+
+  if (sourceType === "inventory") {
+    const { data: item, error: itemError } = await context.supabase
+      .from("turquesa_inventory_items")
+      .select("id,item_name,on_hand,unit,avg_cost")
+      .eq("restaurant_id", restaurant.id)
+      .eq("item_name", itemName)
+      .maybeSingle();
+
+    if (itemError) throw itemError;
+    if (!item) return NextResponse.json({ ok: false, error: "Materia prima no encontrada." }, { status: 404 });
+
+    const previousOnHand = quantity(item.on_hand);
+    if (requestedQty > previousOnHand) {
+      return NextResponse.json(
+        { ok: false, error: `${item.item_name} solo tiene ${quantityLabel(previousOnHand)} ${item.unit || "u"} disponible.` },
+        { status: 409 }
+      );
+    }
+
+    entityId = item.id;
+    displayItem = item.item_name;
+    unit = item.unit || "u";
+    affectedLines.push({
+      inventory: item,
+      quantity: requestedQty,
+      previousOnHand,
+      nextOnHand: quantity(previousOnHand - requestedQty),
+      unit,
+      cost: money(requestedQty * num(item.avg_cost)),
+    });
+  } else {
+    const { data: menuItem, error: menuError } = await context.supabase
+      .from("turquesa_menu_items")
+      .select("id,name")
+      .eq("restaurant_id", restaurant.id)
+      .eq("name", menuItemName)
+      .maybeSingle();
+
+    if (menuError) throw menuError;
+    if (!menuItem) return NextResponse.json({ ok: false, error: "Plato no encontrado en el menu." }, { status: 404 });
+
+    const { data: recipes, error: recipeError } = await context.supabase
+      .from("turquesa_recipe_ingredients")
+      .select("inventory_item_id,quantity,unit")
+      .eq("restaurant_id", restaurant.id)
+      .eq("menu_item_id", menuItem.id)
+      .eq("is_active", true);
+
+    if (recipeError) throw recipeError;
+    if (!recipes?.length) {
+      return NextResponse.json({ ok: false, error: "Ese plato no tiene receta enlazada para descontar inventario." }, { status: 409 });
+    }
+
+    const inventoryIds = Array.from(new Set((recipes || []).map((recipe: any) => clean(recipe.inventory_item_id)).filter(Boolean)));
+    const { data: inventoryRows, error: inventoryError } = await context.supabase
+      .from("turquesa_inventory_items")
+      .select("id,item_name,on_hand,unit,avg_cost")
+      .eq("restaurant_id", restaurant.id)
+      .in("id", inventoryIds);
+
+    if (inventoryError) throw inventoryError;
+    const inventoryById = new Map<string, any>((inventoryRows || []).map((item: any) => [item.id, item]));
+
+    entityType = "turquesa_menu_items";
+    entityId = menuItem.id;
+    displayItem = menuItem.name;
+    unit = "plato";
+
+    for (const recipe of recipes || []) {
+      const inventory = inventoryById.get(recipe.inventory_item_id);
+      if (!inventory) {
+        return NextResponse.json({ ok: false, error: "Receta con inventario incompleto." }, { status: 409 });
+      }
+      const lineQty = quantity(num(recipe.quantity) * requestedQty);
+      const previousOnHand = quantity(inventory.on_hand);
+      if (lineQty > previousOnHand) {
+        return NextResponse.json(
+          { ok: false, error: `${inventory.item_name} solo tiene ${quantityLabel(previousOnHand)} ${inventory.unit || recipe.unit || "u"} disponible.` },
+          { status: 409 }
+        );
+      }
+      affectedLines.push({
+        inventory,
+        quantity: lineQty,
+        previousOnHand,
+        nextOnHand: quantity(previousOnHand - lineQty),
+        unit: inventory.unit || recipe.unit || "u",
+        cost: money(lineQty * num(inventory.avg_cost)),
+      });
+    }
+  }
+
+  for (const line of affectedLines) {
+    const { error: updateError } = await context.supabase
+      .from("turquesa_inventory_items")
+      .update({
+        on_hand: line.nextOnHand,
+        updated_by_email: context.actorEmail,
+        updated_at: now,
+      })
+      .eq("restaurant_id", restaurant.id)
+      .eq("id", line.inventory.id);
+
+    if (updateError) throw updateError;
+  }
+
+  const totalCost = money(affectedLines.reduce((sum, line) => sum + line.cost, 0));
+  const payload = {
+    spoilage_code: spoilageCode,
+    source_type: sourceType,
+    item_name: displayItem,
+    menu_item_name: sourceType === "menu_item" ? displayItem : null,
+    quantity: requestedQty,
+    unit,
+    reason_key: reasonKey,
+    reason_label: reasonLabel,
+    responsible,
+    note,
+    total_cost: totalCost,
+    affected_items: affectedLines.map((line) => ({
+      inventory_item_id: line.inventory.id,
+      item_name: line.inventory.item_name,
+      quantity: line.quantity,
+      unit: line.unit,
+      previous_on_hand: line.previousOnHand,
+      next_on_hand: line.nextOnHand,
+      cost: line.cost,
+    })),
+  };
+
+  const { data: event, error: eventError } = await context.supabase
+    .from("turquesa_events")
+    .insert({
+      restaurant_id: restaurant.id,
+      shift_id: shift?.id || null,
+      entity_type: entityType,
+      entity_id: entityId || null,
+      event_type: "inventory_spoilage_recorded",
+      actor_email: context.actorEmail,
+      description: `${spoilageCode}: ${displayItem} dado de baja por ${reasonLabel}.`,
+      payload,
+    })
+    .select("id")
+    .single();
+
+  if (eventError) throw eventError;
+
+  if (totalCost > 0) {
+    const { error: entriesError } = await context.supabase.from("turquesa_accounting_entries").insert([
+      {
+        restaurant_id: restaurant.id,
+        shift_id: shift?.id || null,
+        entry_date: now.slice(0, 10),
+        account_code: "6120",
+        account_name: "Decomisos y mermas de inventario",
+        debit: totalCost,
+        credit: 0,
+        reference_type: "inventory_spoilage",
+        reference_id: event.id,
+        memo: `${spoilageCode}: ${displayItem}`,
+        status: "posted",
+        metadata: { ...payload, line: "spoilage_expense" },
+      },
+      {
+        restaurant_id: restaurant.id,
+        shift_id: shift?.id || null,
+        entry_date: now.slice(0, 10),
+        account_code: "1300",
+        account_name: "Inventario cocina y bar",
+        debit: 0,
+        credit: totalCost,
+        reference_type: "inventory_spoilage",
+        reference_id: event.id,
+        memo: `${spoilageCode}: baja de inventario`,
+        status: "posted",
+        metadata: { ...payload, line: "inventory_offset" },
+      },
+    ]);
+
+    if (entriesError) throw entriesError;
+  }
+
+  return NextResponse.json({
+    ok: true,
+    message: `${spoilageCode}: decomiso registrado. ${displayItem} -${quantityLabel(requestedQty)} ${unit}. Costo estimado RD$${totalCost.toLocaleString("es-DO")}.`,
+    snapshot: await readSnapshot(context.supabase),
+  });
+}
+
 async function adjustInventory(body: OperationBody, context: DbContext) {
   const itemName = clean(body?.itemName);
   const delta = Number(body?.delta || 0);
@@ -2238,6 +2521,7 @@ export async function POST(request: Request) {
     if (action === "close_order") return await closeOrder(body, context);
     if (action === "create_reservation") return await createReservation(body, context);
     if (action === "update_reservation_status") return await updateReservationStatus(body, context);
+    if (action === "record_spoilage") return await recordSpoilage(body, context);
     if (action === "adjust_inventory") return await adjustInventory(body, context);
     if (action === "update_inventory_cost") return await updateInventoryCost(body, context);
     if (action === "create_purchase_request") return await createPurchaseRequest(body, context);

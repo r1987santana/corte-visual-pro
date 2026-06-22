@@ -62,6 +62,7 @@ import {
   type TurquesaRecipeIngredient,
   type TurquesaReservation,
   type TurquesaSnapshot,
+  type TurquesaSpoilageEvent,
   type TurquesaTable,
   type TurquesaTableStatus,
   type TurquesaWifiLead,
@@ -128,6 +129,23 @@ type OperatingExpenseFormState = {
   category: string;
   amount: string;
   method: TurquesaOperatingExpenseMethod;
+  responsible: string;
+  note: string;
+};
+type SpoilageSourceType = "inventory" | "menu_item";
+type SpoilageReasonKey =
+  | "spoiled_raw"
+  | "expired"
+  | "service_error"
+  | "customer_return"
+  | "breakage"
+  | "quality_control"
+  | "other";
+type SpoilageFormState = {
+  sourceType: SpoilageSourceType;
+  itemName: string;
+  quantity: string;
+  reason: SpoilageReasonKey;
   responsible: string;
   note: string;
 };
@@ -238,6 +256,25 @@ const discountOptions: Array<{ key: DiscountKey; label: string; rate: number }> 
   { key: "owners", label: "Propietarios 10%", rate: 0.1 },
   { key: "employees", label: "Empleados 20%", rate: 0.2 },
 ];
+
+const spoilageReasons: Array<{ key: SpoilageReasonKey; label: string }> = [
+  { key: "spoiled_raw", label: "Materia prima en mal estado" },
+  { key: "expired", label: "Producto vencido" },
+  { key: "service_error", label: "Error de servicio" },
+  { key: "customer_return", label: "Producto devuelto" },
+  { key: "breakage", label: "Rotura o derrame" },
+  { key: "quality_control", label: "Control de calidad" },
+  { key: "other", label: "Otro decomiso" },
+];
+
+const initialSpoilageForm: SpoilageFormState = {
+  sourceType: "inventory",
+  itemName: "",
+  quantity: "1",
+  reason: "spoiled_raw",
+  responsible: "Cocina",
+  note: "",
+};
 
 const waiterAccessCodes: StaffSession[] = [
   { role: "waiter", code: "1010", name: "Laura", label: "Laura / Salon" },
@@ -541,6 +578,56 @@ function purchaseTotal(items: TurquesaPurchaseRequestItem[]) {
   return items.reduce((sum, item) => sum + item.estimatedCost, 0);
 }
 
+function stockQuantity(value: number) {
+  return Math.max(0, Math.round(value * 1000) / 1000);
+}
+
+function spoilageReasonLabel(key: SpoilageReasonKey) {
+  return spoilageReasons.find((reason) => reason.key === key)?.label || "Otro decomiso";
+}
+
+function spoilageImpact(
+  form: SpoilageFormState,
+  inventory: TurquesaInventoryItem[],
+  recipeIngredients: TurquesaRecipeIngredient[]
+) {
+  const quantity = stockQuantity(formNumber(form.quantity));
+  const lines: Array<{ item: string; qty: number; unit: string; cost: number; shortage: number }> = [];
+  if (quantity <= 0 || !form.itemName) return { quantity, totalCost: 0, lines };
+
+  if (form.sourceType === "inventory") {
+    const item = inventory.find((row) => row.item === form.itemName);
+    if (!item) return { quantity, totalCost: 0, lines };
+    lines.push({
+      item: item.item,
+      qty: quantity,
+      unit: item.unit,
+      cost: Math.round(quantity * item.avgCost),
+      shortage: Math.max(0, stockQuantity(quantity - item.onHand)),
+    });
+  } else {
+    recipeIngredients
+      .filter((recipe) => recipe.menuItem === form.itemName)
+      .forEach((recipe) => {
+        const stock = inventory.find((item) => item.item === recipe.ingredient);
+        const qty = stockQuantity(recipe.qty * quantity);
+        lines.push({
+          item: recipe.ingredient,
+          qty,
+          unit: stock?.unit || recipe.unit,
+          cost: Math.round(qty * (stock?.avgCost || 0)),
+          shortage: stock ? Math.max(0, stockQuantity(qty - stock.onHand)) : qty,
+        });
+      });
+  }
+
+  return {
+    quantity,
+    totalCost: lines.reduce((sum, line) => sum + line.cost, 0),
+    lines,
+  };
+}
+
 export default function TurquesaRestaurantOS() {
   const [activeView, setActiveView] = useState<ViewKey>("pos");
   const [snapshot, setSnapshot] = useState<TurquesaSnapshot>(() => freshDemoSnapshot());
@@ -589,6 +676,7 @@ export default function TurquesaRestaurantOS() {
     responsible: "Administracion",
     note: "",
   });
+  const [spoilageForm, setSpoilageForm] = useState<SpoilageFormState>(initialSpoilageForm);
 
   const tables = snapshot.tables;
   const menuItems = snapshot.menuItems;
@@ -598,6 +686,7 @@ export default function TurquesaRestaurantOS() {
   const recipeIngredients = snapshot.recipeIngredients;
   const purchaseRequests = snapshot.purchaseRequests;
   const operatingExpenses = snapshot.operatingExpenses;
+  const spoilageEvents = snapshot.spoilageEvents;
   const wifiLeads = snapshot.wifiLeads;
 
   const selectedTable = useMemo(
@@ -718,6 +807,19 @@ export default function TurquesaRestaurantOS() {
     if (recipeIngredients.some((item) => item.menuItem === selectedRecipeMenu)) return;
     setSelectedRecipeMenu(recipeIngredients[0]?.menuItem || menuItems[0]?.name || "");
   }, [menuItems, recipeIngredients, selectedRecipeMenu]);
+
+  useEffect(() => {
+    setSpoilageForm((current) => {
+      const options =
+        current.sourceType === "inventory"
+          ? inventory.map((item) => item.item)
+          : menuItems
+              .map((item) => item.name)
+              .filter((name) => recipeIngredients.some((recipe) => recipe.menuItem === name));
+      if (current.itemName && options.includes(current.itemName)) return current;
+      return { ...current, itemName: options[0] || "" };
+    });
+  }, [inventory, menuItems, recipeIngredients, spoilageForm.sourceType]);
 
   useEffect(() => {
     if (!selectedTable || isTakeoutSale) return;
@@ -1499,6 +1601,94 @@ export default function TurquesaRestaurantOS() {
       setMessage(payload.message || `${itemName} ajustado.`);
     } catch (error) {
       adjustInventoryLocal(itemName, delta, errorMessage(error));
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  function recordSpoilageLocal(reason: string) {
+    const impact = spoilageImpact(spoilageForm, inventory, recipeIngredients);
+    if (!spoilageForm.itemName || impact.quantity <= 0 || !impact.lines.length) {
+      setMessage("Selecciona un item con cantidad valida para decomisar.");
+      setActiveView("inventario");
+      return;
+    }
+    if (impact.lines.some((line) => line.shortage > 0)) {
+      setMessage("No se puede registrar decomiso mayor al stock disponible.");
+      setActiveView("inventario");
+      return;
+    }
+
+    const reasonLabel = spoilageReasonLabel(spoilageForm.reason);
+    const nextEvent: TurquesaSpoilageEvent = {
+      id: `DEC-DEMO-${Date.now()}`,
+      item: spoilageForm.itemName,
+      sourceType: spoilageForm.sourceType,
+      quantity: impact.quantity,
+      unit: spoilageForm.sourceType === "menu_item" ? "plato" : impact.lines[0]?.unit || "u",
+      reason: reasonLabel,
+      cost: impact.totalCost,
+      responsible: spoilageForm.responsible || "Cocina",
+      note: spoilageForm.note,
+      createdAt: new Date().toISOString(),
+    };
+    const nextMessage = `Modo demo: decomiso de ${spoilageForm.itemName} registrado por ${reasonLabel}. ${reason}`;
+
+    setSnapshot((current) => {
+      const currentImpact = spoilageImpact(spoilageForm, current.inventory, current.recipeIngredients);
+      return {
+        ...current,
+        source: "demo",
+        message: nextMessage,
+        generatedAt: new Date().toISOString(),
+        inventory: current.inventory.map((item) => {
+          const line = currentImpact.lines.find((row) => row.item === item.item);
+          if (!line) return item;
+          const onHand = stockQuantity(item.onHand - line.qty);
+          return { ...item, onHand, trend: inventoryTrend(onHand, item.min) };
+        }),
+        spoilageEvents: [nextEvent, ...current.spoilageEvents].slice(0, 8),
+      };
+    });
+    setSpoilageForm((current) => ({ ...current, quantity: "1", note: "" }));
+    setActiveView("inventario");
+    setMessage(nextMessage);
+  }
+
+  async function recordSpoilage() {
+    const impact = spoilageImpact(spoilageForm, inventory, recipeIngredients);
+    if (!spoilageForm.itemName || impact.quantity <= 0 || !impact.lines.length) {
+      setMessage("Selecciona un item con cantidad valida para decomisar.");
+      setActiveView("inventario");
+      return;
+    }
+    if (impact.lines.some((line) => line.shortage > 0)) {
+      setMessage("No se puede registrar decomiso mayor al stock disponible.");
+      setActiveView("inventario");
+      return;
+    }
+
+    setActiveView("inventario");
+    setSyncing(true);
+    try {
+      const payload = await postOperation({
+        action: "record_spoilage",
+        sourceType: spoilageForm.sourceType,
+        itemName: spoilageForm.sourceType === "inventory" ? spoilageForm.itemName : undefined,
+        menuItemName: spoilageForm.sourceType === "menu_item" ? spoilageForm.itemName : undefined,
+        quantity: impact.quantity,
+        reason: spoilageForm.reason,
+        responsible: spoilageForm.responsible,
+        note: spoilageForm.note,
+      });
+      setSpoilageForm((current) => ({ ...current, quantity: "1", note: "" }));
+      setMessage(payload.message || "Decomiso registrado y descontado del inventario.");
+    } catch (error) {
+      if (snapshot.source === "demo") {
+        recordSpoilageLocal(errorMessage(error));
+      } else {
+        setMessage(`No se pudo registrar el decomiso: ${errorMessage(error)}.`);
+      }
     } finally {
       setSyncing(false);
     }
@@ -2527,6 +2717,21 @@ export default function TurquesaRestaurantOS() {
                   purchaseRequests={purchaseRequests}
                   onCreate={() => void createPurchaseRequest()}
                   onReceive={(request) => void receivePurchaseRequest(request)}
+                  disabled={syncing}
+                />
+              </Panel>
+            ) : null}
+
+            {activeView === "inventario" ? (
+              <Panel title="Decomiso" action={`${spoilageEvents.length} registros`} icon={<AlertTriangle size={20} />}>
+                <SpoilageControlPanel
+                  form={spoilageForm}
+                  inventory={inventory}
+                  menuItems={menuItems}
+                  recipeIngredients={recipeIngredients}
+                  events={spoilageEvents}
+                  onChange={setSpoilageForm}
+                  onSubmit={() => void recordSpoilage()}
                   disabled={syncing}
                 />
               </Panel>
@@ -4206,6 +4411,170 @@ function AuditItem({ title, text, tone }: { title: string; text: string; tone: "
       <strong>{title}</strong>
       <p>{text}</p>
     </article>
+  );
+}
+
+function SpoilageControlPanel({
+  form,
+  inventory,
+  menuItems,
+  recipeIngredients,
+  events,
+  onChange,
+  onSubmit,
+  disabled,
+}: {
+  form: SpoilageFormState;
+  inventory: TurquesaInventoryItem[];
+  menuItems: TurquesaMenuItem[];
+  recipeIngredients: TurquesaRecipeIngredient[];
+  events: TurquesaSpoilageEvent[];
+  onChange: (value: SpoilageFormState) => void;
+  onSubmit: () => void;
+  disabled: boolean;
+}) {
+  const menuOptions = menuItems
+    .map((item) => item.name)
+    .filter((name) => recipeIngredients.some((recipe) => recipe.menuItem === name));
+  const options = form.sourceType === "inventory" ? inventory.map((item) => item.item) : menuOptions;
+  const impact = spoilageImpact(form, inventory, recipeIngredients);
+  const hasShortage = impact.lines.some((line) => line.shortage > 0);
+
+  function update(next: Partial<SpoilageFormState>) {
+    onChange({ ...form, ...next });
+  }
+
+  function changeSource(sourceType: SpoilageSourceType) {
+    const nextOptions = sourceType === "inventory" ? inventory.map((item) => item.item) : menuOptions;
+    onChange({ ...form, sourceType, itemName: nextOptions[0] || "", quantity: form.quantity || "1" });
+  }
+
+  return (
+    <form
+      className={styles.spoilagePanel}
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <div className={styles.spoilageMode}>
+        <button
+          type="button"
+          className={form.sourceType === "inventory" ? styles.spoilageModeActive : ""}
+          onClick={() => changeSource("inventory")}
+          disabled={disabled}
+        >
+          Materia prima
+        </button>
+        <button
+          type="button"
+          className={form.sourceType === "menu_item" ? styles.spoilageModeActive : ""}
+          onClick={() => changeSource("menu_item")}
+          disabled={disabled}
+        >
+          Plato preparado
+        </button>
+      </div>
+
+      <div className={styles.spoilageGrid}>
+        <label>
+          <span>{form.sourceType === "inventory" ? "Inventario" : "Plato"}</span>
+          <select value={form.itemName} onChange={(event) => update({ itemName: event.target.value })} disabled={disabled || !options.length}>
+            {options.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Cantidad</span>
+          <input
+            type="number"
+            min="0.001"
+            step="0.001"
+            value={form.quantity}
+            onChange={(event) => update({ quantity: event.target.value })}
+            disabled={disabled}
+          />
+        </label>
+      </div>
+
+      <div className={styles.spoilageGrid}>
+        <label>
+          <span>Motivo</span>
+          <select value={form.reason} onChange={(event) => update({ reason: event.target.value as SpoilageReasonKey })} disabled={disabled}>
+            {spoilageReasons.map((reason) => (
+              <option key={reason.key} value={reason.key}>
+                {reason.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Responsable</span>
+          <input value={form.responsible} onChange={(event) => update({ responsible: event.target.value })} disabled={disabled} />
+        </label>
+      </div>
+
+      <label className={styles.spoilageNote}>
+        <span>Nota</span>
+        <textarea
+          value={form.note}
+          onChange={(event) => update({ note: event.target.value })}
+          placeholder="Ej. pescado fuera de temperatura, plato devuelto, derrame en bar..."
+          disabled={disabled}
+        />
+      </label>
+
+      <div className={styles.spoilageImpact}>
+        <div>
+          <span>Costo estimado</span>
+          <strong>{currency(impact.totalCost)}</strong>
+        </div>
+        <div>
+          <span>Impacto</span>
+          <strong>{impact.lines.length} item(s)</strong>
+        </div>
+      </div>
+
+      <div className={styles.spoilageLines}>
+        {impact.lines.length ? (
+          impact.lines.map((line) => (
+            <div className={styles.spoilageLine} key={line.item}>
+              <span>
+                {line.item} -{formatQty(line.qty)} {line.unit}
+              </span>
+              <b className={line.shortage > 0 ? styles.bad : styles.good}>{line.shortage > 0 ? "Sin stock" : currency(line.cost)}</b>
+            </div>
+          ))
+        ) : (
+          <div className={styles.emptyState}>Selecciona un item con receta o existencia.</div>
+        )}
+      </div>
+
+      <button type="submit" className={styles.closeButton} disabled={disabled || !impact.lines.length || hasShortage || impact.quantity <= 0}>
+        Registrar decomiso
+      </button>
+
+      <div className={styles.spoilageHistory}>
+        <strong>Recientes</strong>
+        {events.length ? (
+          events.slice(0, 4).map((event) => (
+            <div className={styles.spoilageHistoryRow} key={event.id}>
+              <span>
+                {event.item} / {event.reason}
+              </span>
+              <b>
+                -{formatQty(event.quantity)} {event.unit} / {currency(event.cost)}
+              </b>
+            </div>
+          ))
+        ) : (
+          <p>Sin decomisos registrados.</p>
+        )}
+      </div>
+    </form>
   );
 }
 
