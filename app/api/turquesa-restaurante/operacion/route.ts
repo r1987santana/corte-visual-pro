@@ -177,6 +177,20 @@ function money(value: unknown) {
   return Math.round(num(value) * 100) / 100;
 }
 
+function normalizeDiscountRate(value: unknown) {
+  const rate = Math.round(num(value) * 10000) / 10000;
+  if (Math.abs(rate - 0.05) < 0.0001) return 0.05;
+  if (Math.abs(rate - 0.1) < 0.0001) return 0.1;
+  if (Math.abs(rate - 0.2) < 0.0001) return 0.2;
+  return 0;
+}
+
+function discountMessage(rate: number, label: unknown) {
+  const cleanLabel = clean(label);
+  if (!rate) return "";
+  return ` Descuento aplicado: ${cleanLabel || `${Math.round(rate * 100)}%`}.`;
+}
+
 function quantity(value: unknown) {
   return Math.round(num(value) * 1000) / 1000;
 }
@@ -581,7 +595,7 @@ async function recalcOrderTotals(
   supabase: any,
   restaurant: any,
   orderId: string,
-  options: { serviceChargeable?: boolean } = {}
+  options: { serviceChargeable?: boolean; discountRate?: number | null } = {}
 ) {
   const { data, error } = await supabase
     .from("turquesa_order_items")
@@ -591,21 +605,26 @@ async function recalcOrderTotals(
 
   if (error) throw error;
   let serviceChargeable = options.serviceChargeable;
-  if (serviceChargeable == null) {
-    const { data: order, error: orderError } = await supabase
-      .from("turquesa_orders")
-      .select("order_type")
-      .eq("id", orderId)
-      .maybeSingle();
+  const { data: order, error: orderError } = await supabase
+    .from("turquesa_orders")
+    .select("order_type,discount")
+    .eq("id", orderId)
+    .maybeSingle();
 
-    if (orderError) throw orderError;
+  if (orderError) throw orderError;
+  if (serviceChargeable == null) {
     serviceChargeable = order?.order_type !== "takeout";
   }
 
   const subtotal = (data || []).reduce((sum: number, item: any) => sum + num(item.line_total), 0);
-  const service = serviceChargeable ? Math.round(subtotal * num(restaurant.service_charge_rate) * 100) / 100 : 0;
-  const tax = Math.round(subtotal * num(restaurant.tax_rate) * 100) / 100;
-  const total = subtotal + service + tax;
+  const hasDiscountRate = Object.prototype.hasOwnProperty.call(options, "discountRate");
+  const discount = hasDiscountRate
+    ? Math.min(subtotal, money(subtotal * normalizeDiscountRate(options.discountRate)))
+    : Math.min(subtotal, money(order?.discount));
+  const taxableSubtotal = Math.max(0, subtotal - discount);
+  const service = serviceChargeable ? Math.round(taxableSubtotal * num(restaurant.service_charge_rate) * 100) / 100 : 0;
+  const tax = Math.round(taxableSubtotal * num(restaurant.tax_rate) * 100) / 100;
+  const total = taxableSubtotal + service + tax;
 
   const { error: updateError } = await supabase
     .from("turquesa_orders")
@@ -613,13 +632,14 @@ async function recalcOrderTotals(
       subtotal,
       service_charge: service,
       tax,
+      discount,
       total,
       updated_at: new Date().toISOString(),
     })
     .eq("id", orderId);
 
   if (updateError) throw updateError;
-  return { subtotal, service, tax, total };
+  return { subtotal, discount, taxableSubtotal, service, tax, total };
 }
 
 async function ensureOpenShift(supabase: any, restaurantId: string, actorEmail: string) {
@@ -963,6 +983,7 @@ async function advanceTicket(body: OperationBody, context: DbContext) {
 
 async function createTakeoutSale(body: OperationBody, context: DbContext) {
   const method = normalizePaymentMethod(body?.method);
+  const discountRate = normalizeDiscountRate(body?.discountRate);
   const lines = Array.isArray(body?.items) ? (body.items as TurquesaOrderItem[]) : [];
 
   if (!lines.length) return NextResponse.json({ ok: false, error: "La venta para llevar esta vacia." }, { status: 400 });
@@ -985,7 +1006,7 @@ async function createTakeoutSale(body: OperationBody, context: DbContext) {
       guest_name: "Para llevar",
       pax: 1,
       server_name: "Caja rapida",
-      notes: "Venta rapida para llevar sin 10% legal de servicio/propina.",
+      notes: `Venta rapida para llevar sin 10% legal de servicio/propina.${discountMessage(discountRate, body?.discountLabel)}`,
       created_by_email: context.actorEmail,
     })
     .select("*")
@@ -1026,7 +1047,10 @@ async function createTakeoutSale(body: OperationBody, context: DbContext) {
 
   if (itemsError) throw itemsError;
 
-  const totals = await recalcOrderTotals(context.supabase, restaurant, order.id, { serviceChargeable: false });
+  const totals = await recalcOrderTotals(context.supabase, restaurant, order.id, {
+    serviceChargeable: false,
+    discountRate,
+  });
   const amount = money(totals.total);
   if (amount <= 0) return NextResponse.json({ ok: false, error: "No hay balance pendiente para cobrar." }, { status: 400 });
 
@@ -1127,7 +1151,7 @@ async function createTakeoutSale(body: OperationBody, context: DbContext) {
 
   return NextResponse.json({
     ok: true,
-    message: `Venta para llevar ${orderNumber} cobrada por ${paymentMethodLabel(method)} sin 10% legal. Ticket ${ticketNumber} enviado a cocina.${consumptionMessage(consumedLines)}${consumptionWarning}`,
+    message: `Venta para llevar ${orderNumber} cobrada por ${paymentMethodLabel(method)} sin 10% legal.${discountMessage(discountRate, body?.discountLabel)} Ticket ${ticketNumber} enviado a cocina.${consumptionMessage(consumedLines)}${consumptionWarning}`,
     snapshot: await readSnapshot(context.supabase),
   });
 }
@@ -1226,6 +1250,7 @@ async function closeOrder(body: OperationBody, context: DbContext) {
   const tableLabel = clean(body?.tableLabel);
   const method = normalizePaymentMethod(body?.method);
   const requestedAmount = num(body?.amount);
+  const discountRate = normalizeDiscountRate(body?.discountRate);
 
   if (!tableLabel) return NextResponse.json({ ok: false, error: "Mesa requerida." }, { status: 400 });
 
@@ -1257,7 +1282,7 @@ async function closeOrder(body: OperationBody, context: DbContext) {
   if (!order) return NextResponse.json({ ok: false, error: "Orden no encontrada." }, { status: 404 });
   if (order.status === "paid") return NextResponse.json({ ok: false, error: "La orden ya esta pagada." }, { status: 400 });
 
-  const totals = await recalcOrderTotals(context.supabase, restaurant, order.id);
+  const totals = await recalcOrderTotals(context.supabase, restaurant, order.id, { discountRate });
   const previousPaid = num(order.paid_total);
   const due = Math.max(0, totals.total - previousPaid);
   const amount = requestedAmount > 0 ? Math.min(requestedAmount, due || requestedAmount) : due;
@@ -1347,8 +1372,8 @@ async function closeOrder(body: OperationBody, context: DbContext) {
   return NextResponse.json({
     ok: true,
     message: fullyPaid
-      ? `Pago por ${paymentMethodLabel(method)} registrado y mesa ${table.code} liberada.`
-      : `Pago parcial por ${paymentMethodLabel(method)} registrado en ${table.code}.`,
+      ? `Pago por ${paymentMethodLabel(method)} registrado.${discountMessage(discountRate, body?.discountLabel)} Mesa ${table.code} liberada.`
+      : `Pago parcial por ${paymentMethodLabel(method)} registrado en ${table.code}.${discountMessage(discountRate, body?.discountLabel)}`,
     snapshot: await readSnapshot(context.supabase),
   });
 }

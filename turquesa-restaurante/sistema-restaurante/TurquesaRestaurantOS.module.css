@@ -1973,12 +1973,45 @@
   padding: 14px 16px 0;
 }
 
+.discountGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 16px 0;
+}
+
 .methodGrid .methodActive {
   border-color: var(--teal);
   background: #e9fbf8;
   color: var(--teal);
   box-shadow: inset 0 0 0 1px rgba(8, 117, 125, 0.08);
 }
+
+.discountGrid button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--charcoal);
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.discountGrid .discountActive {
+  border-color: rgba(200, 163, 92, 0.72);
+  background:
+    linear-gradient(135deg, rgba(200, 163, 92, 0.18), rgba(255, 255, 255, 0.94)),
+    #fffaf0;
+  color: #7a550f;
+  box-shadow: inset 0 0 0 1px rgba(200, 163, 92, 0.1);
+}
+
+.discountGrid button:hover {
+  border-color: rgba(200, 163, 92, 0.48);
+}
+
 
 .line,
 .totalLine {
@@ -4434,6 +4467,7 @@
   .menuGrid,
   .orderMeta,
   .methodGrid,
+  .discountGrid,
   .moduleStats,
   .moduleActions,
   .reportGrid,

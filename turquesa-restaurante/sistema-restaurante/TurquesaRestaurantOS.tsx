@@ -93,6 +93,7 @@ type ViewKey =
   | "cierre";
 type PaymentMethod = "cash" | "card" | "transfer";
 type SaleMode = "table" | "takeout";
+type DiscountKey = "none" | "vip" | "owners" | "employees";
 type StaffAccessRole = "waiter" | "supervisor";
 type StaffSession = {
   role: StaffAccessRole;
@@ -221,6 +222,13 @@ const paymentMethods: Array<{ key: PaymentMethod; label: string }> = [
   { key: "card", label: "Tarjeta" },
   { key: "cash", label: "Efectivo" },
   { key: "transfer", label: "Transferencia" },
+];
+
+const discountOptions: Array<{ key: DiscountKey; label: string; rate: number }> = [
+  { key: "none", label: "Sin descuento", rate: 0 },
+  { key: "vip", label: "Cliente VIP 5%", rate: 0.05 },
+  { key: "owners", label: "Propietarios 10%", rate: 0.1 },
+  { key: "employees", label: "Empleados 20%", rate: 0.2 },
 ];
 
 const waiterAccessCodes: StaffSession[] = [
@@ -487,6 +495,7 @@ export default function TurquesaRestaurantOS() {
   const [printLog, setPrintLog] = useState<TurquesaPrintLogEntry[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
   const [saleMode, setSaleMode] = useState<SaleMode>("table");
+  const [discountKey, setDiscountKey] = useState<DiscountKey>("none");
   const [takeoutTicketNumber, setTakeoutTicketNumber] = useState(1);
   const [staffSession, setStaffSession] = useState<StaffSession | null>(null);
   const [staffCodeForm, setStaffCodeForm] = useState<StaffCodeFormState>({ code: "" });
@@ -552,12 +561,18 @@ export default function TurquesaRestaurantOS() {
     ? "Venta rapida para llevar: cobra y envia a cocina sin aplicar el 10% legal de servicio/propina."
     : posTableGuide;
   const posSaleAction = isTakeoutSale ? "Llevar sin 10%" : posTableAction;
+  const selectedDiscount = discountOptions.find((option) => option.key === discountKey) || discountOptions[0];
+  const discountRate = selectedDiscount.rate;
   const orderSubtotal = order.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const serviceFee = isTakeoutSale ? 0 : orderSubtotal * 0.1;
-  const tax = orderSubtotal * 0.18;
-  const orderTotal = orderSubtotal + serviceFee + tax;
+  const orderDiscount = Math.round(orderSubtotal * discountRate * 100) / 100;
+  const discountedSubtotal = Math.max(0, orderSubtotal - orderDiscount);
+  const serviceFee = isTakeoutSale ? 0 : discountedSubtotal * 0.1;
+  const tax = discountedSubtotal * 0.18;
+  const orderTotal = discountedSubtotal + serviceFee + tax;
   const tableBalance = isTakeoutSale ? 0 : selectedTable?.total || 0;
-  const payableTotal = Math.round(tableBalance + orderTotal);
+  const tableDiscount = !isTakeoutSale && tableBalance > 0 ? Math.round(tableBalance * discountRate * 100) / 100 : 0;
+  const totalDiscount = orderDiscount + tableDiscount;
+  const payableTotal = Math.round(Math.max(0, tableBalance - tableDiscount) + orderTotal);
   const openTables = tables.filter((table) => table.status === "open" || table.status === "attention").length;
   const kitchenReady = tickets.filter((ticket) => ticket.status === "ready").length;
   const expectedCash = expectedShiftCash(snapshot.shift);
@@ -1008,7 +1023,7 @@ export default function TurquesaRestaurantOS() {
       minutes: 0,
       status: "new",
     };
-    const nextMessage = `Modo demo: venta ${ticketLabel} cobrada por ${paymentLabel(paymentMethod).toLowerCase()} sin 10% legal. ${consumptionSummary(consumption.lines)} ${reason}`;
+    const nextMessage = `Modo demo: venta ${ticketLabel} cobrada por ${paymentLabel(paymentMethod).toLowerCase()} sin 10% legal${discountRate ? ` con ${selectedDiscount.label}` : ""}. ${consumptionSummary(consumption.lines)} ${reason}`;
 
     setSnapshot((current) => ({
       ...current,
@@ -1036,6 +1051,7 @@ export default function TurquesaRestaurantOS() {
       kitchenTickets: [nextTicket, ...current.kitchenTickets],
     }));
     setOrder([]);
+    setDiscountKey("none");
     setTakeoutTicketNumber((current) => current + 1);
     setActiveView("pos");
     setMessage(nextMessage);
@@ -1053,9 +1069,12 @@ export default function TurquesaRestaurantOS() {
         action: "create_takeout_sale",
         method: paymentMethod,
         amount: payableTotal,
+        discountRate,
+        discountLabel: selectedDiscount.label,
         items: order,
       });
       setOrder([]);
+      setDiscountKey("none");
       setTakeoutTicketNumber((current) => current + 1);
       setActiveView("pos");
       setMessage(payload.message || "Venta para llevar cobrada y enviada a cocina sin 10% legal.");
@@ -1116,7 +1135,7 @@ export default function TurquesaRestaurantOS() {
       return;
     }
 
-    const nextMessage = `Modo demo: pago ${paymentLabel(paymentMethod).toLowerCase()} registrado para ${selectedTable.label}. ${reason}`;
+    const nextMessage = `Modo demo: pago ${paymentLabel(paymentMethod).toLowerCase()} registrado para ${selectedTable.label}${discountRate ? ` con ${selectedDiscount.label}` : ""}. ${reason}`;
     setSnapshot((current) => ({
       ...current,
       source: "demo",
@@ -1151,6 +1170,7 @@ export default function TurquesaRestaurantOS() {
       ),
     }));
     setOrder([]);
+    setDiscountKey("none");
     setActiveView("pos");
     setMessage(nextMessage);
   }
@@ -1174,10 +1194,13 @@ export default function TurquesaRestaurantOS() {
         tableLabel: selectedTable.label,
         method: paymentMethod,
         amount: payableTotal,
+        discountRate,
+        discountLabel: selectedDiscount.label,
         staffCode: staffSession?.code,
         staffRole: staffSession?.role,
       });
       setOrder([]);
+      setDiscountKey("none");
       setActiveView("pos");
       setMessage(payload.message || `Pago registrado para ${selectedTable.label}.`);
     } catch (error) {
@@ -2043,10 +2066,36 @@ export default function TurquesaRestaurantOS() {
 
                 <div className={styles.totals}>
                   <Line label="Subtotal" value={currency(orderSubtotal)} />
+                  {discountRate > 0 ? (
+                    <>
+                      <Line label={`Descuento ${selectedDiscount.label}`} value={`-${currency(totalDiscount)}`} />
+                      <Line label="Base neta" value={currency(discountedSubtotal)} />
+                    </>
+                  ) : null}
                   <Line label="10% servicio" value={isTakeoutSale ? "No aplica" : currency(serviceFee)} />
                   <Line label="ITBIS" value={currency(tax)} />
                   {!isTakeoutSale && selectedTable.total > 0 ? <Line label="Cuenta mesa" value={currency(selectedTable.total)} /> : null}
                   <Line label="Total a cobrar" value={currency(payableTotal)} strong />
+                </div>
+
+                <div className={styles.discountGrid} aria-label="Descuento de la venta">
+                  {discountOptions.map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => {
+                        setDiscountKey(option.key);
+                        setMessage(
+                          option.rate
+                            ? `${option.label} aplicado. El descuento se calcula antes de ITBIS y servicio.`
+                            : "Descuento removido de la venta actual."
+                        );
+                      }}
+                      className={discountKey === option.key ? styles.discountActive : ""}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
                 </div>
 
                 <div className={styles.methodGrid} aria-label="Metodo de pago">
@@ -2073,6 +2122,7 @@ export default function TurquesaRestaurantOS() {
                         className={styles.ghostButton}
                         onClick={() => {
                           setOrder([]);
+                          setDiscountKey("none");
                           setMessage("Venta para llevar limpiada. Puedes iniciar otra sin 10% legal.");
                         }}
                         disabled={syncing || !order.length}
