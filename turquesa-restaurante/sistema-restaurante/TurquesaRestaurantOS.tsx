@@ -53,6 +53,7 @@ import {
   type TurquesaInventoryItem,
   type TurquesaInventoryTrend,
   type TurquesaKitchenTicket,
+  type TurquesaMaterialYieldMetric,
   type TurquesaMenuItem,
   type TurquesaOrderItem,
   type TurquesaOperatingExpense,
@@ -628,6 +629,49 @@ function spoilageImpact(
   };
 }
 
+function materialYieldNote(spoilageRate: number, spoilageQty: number) {
+  if (spoilageRate >= 12) return "Merma alta. Revisar frio, porcion, limpieza y preparacion.";
+  if (spoilageRate >= 5 || spoilageQty > 0) return "Merma presente. Mantener seguimiento por turno.";
+  return "Rendimiento sano contra recetas y decomisos.";
+}
+
+function materialYieldStatus(spoilageRate: number, spoilageCost: number): TurquesaMaterialYieldMetric["status"] {
+  if (spoilageRate >= 12 || spoilageCost >= 1200) return "critico";
+  if (spoilageRate >= 5 || spoilageCost > 0) return "vigilar";
+  return "ok";
+}
+
+function updateYieldMetric(metric: TurquesaMaterialYieldMetric, addedQty: number, addedCost: number): TurquesaMaterialYieldMetric {
+  const spoilageQty = stockQuantity(metric.spoilageQty + addedQty);
+  const spoilageCost = Math.round(metric.spoilageCost + addedCost);
+  const totalOut = stockQuantity(metric.theoreticalUsed + spoilageQty);
+  const spoilageRate = totalOut ? Math.round((spoilageQty / totalOut) * 100) : 0;
+  const yieldRate = totalOut ? Math.max(0, 100 - spoilageRate) : 100;
+
+  return {
+    ...metric,
+    spoilageQty,
+    spoilageCost,
+    totalOut,
+    spoilageRate,
+    yieldRate,
+    status: materialYieldStatus(spoilageRate, spoilageCost),
+    note: materialYieldNote(spoilageRate, spoilageQty),
+  };
+}
+
+function yieldStatusLabel(status: TurquesaMaterialYieldMetric["status"]) {
+  if (status === "critico") return "Critico";
+  if (status === "vigilar") return "Vigilar";
+  return "Sano";
+}
+
+function yieldStatusClass(status: TurquesaMaterialYieldMetric["status"]) {
+  if (status === "critico") return styles.bad;
+  if (status === "vigilar") return styles.warn;
+  return styles.good;
+}
+
 export default function TurquesaRestaurantOS() {
   const [activeView, setActiveView] = useState<ViewKey>("pos");
   const [snapshot, setSnapshot] = useState<TurquesaSnapshot>(() => freshDemoSnapshot());
@@ -687,6 +731,7 @@ export default function TurquesaRestaurantOS() {
   const purchaseRequests = snapshot.purchaseRequests;
   const operatingExpenses = snapshot.operatingExpenses;
   const spoilageEvents = snapshot.spoilageEvents;
+  const materialYieldMetrics = snapshot.materialYieldMetrics;
   const wifiLeads = snapshot.wifiLeads;
 
   const selectedTable = useMemo(
@@ -1636,6 +1681,7 @@ export default function TurquesaRestaurantOS() {
 
     setSnapshot((current) => {
       const currentImpact = spoilageImpact(spoilageForm, current.inventory, current.recipeIngredients);
+      const impactByItem = new Map(currentImpact.lines.map((line) => [line.item, line]));
       return {
         ...current,
         source: "demo",
@@ -1648,6 +1694,10 @@ export default function TurquesaRestaurantOS() {
           return { ...item, onHand, trend: inventoryTrend(onHand, item.min) };
         }),
         spoilageEvents: [nextEvent, ...current.spoilageEvents].slice(0, 8),
+        materialYieldMetrics: current.materialYieldMetrics.map((metric) => {
+          const line = impactByItem.get(metric.item);
+          return line ? updateYieldMetric(metric, line.qty, line.cost) : metric;
+        }),
       };
     });
     setSpoilageForm((current) => ({ ...current, quantity: "1", note: "" }));
@@ -2718,6 +2768,20 @@ export default function TurquesaRestaurantOS() {
                   onCreate={() => void createPurchaseRequest()}
                   onReceive={(request) => void receivePurchaseRequest(request)}
                   disabled={syncing}
+                />
+              </Panel>
+            ) : null}
+
+            {activeView === "inventario" ? (
+              <Panel title="Rendimiento y mermas" action={`${materialYieldMetrics.length} insumos`} icon={<Gauge size={20} />}>
+                <MaterialYieldPanel
+                  metrics={materialYieldMetrics}
+                  onOpenSpoilage={() => {
+                    setMessage("Selecciona materia prima o plato preparado para registrar la merma/decomiso.");
+                  }}
+                  onOpenRecipes={() => {
+                    setMessage("Ajusta la receta cuando el consumo real no coincide con el rendimiento esperado.");
+                  }}
                 />
               </Panel>
             ) : null}
@@ -4411,6 +4475,80 @@ function AuditItem({ title, text, tone }: { title: string; text: string; tone: "
       <strong>{title}</strong>
       <p>{text}</p>
     </article>
+  );
+}
+
+function MaterialYieldPanel({
+  metrics,
+  onOpenSpoilage,
+  onOpenRecipes,
+}: {
+  metrics: TurquesaMaterialYieldMetric[];
+  onOpenSpoilage: () => void;
+  onOpenRecipes: () => void;
+}) {
+  const activeMetrics = metrics.filter((metric) => metric.totalOut > 0 || metric.spoilageQty > 0);
+  const visibleMetrics = (activeMetrics.length ? activeMetrics : metrics).slice(0, 6);
+  const totalOut = metrics.reduce((sum, metric) => sum + metric.totalOut, 0);
+  const totalSpoilage = metrics.reduce((sum, metric) => sum + metric.spoilageQty, 0);
+  const totalSpoilageCost = metrics.reduce((sum, metric) => sum + metric.spoilageCost, 0);
+  const averageYield = totalOut ? Math.max(0, Math.round(((totalOut - totalSpoilage) / totalOut) * 100)) : 100;
+  const criticalCount = metrics.filter((metric) => metric.status === "critico").length;
+
+  return (
+    <div className={styles.yieldPanel}>
+      <div className={styles.yieldHero}>
+        <div>
+          <span>Rendimiento promedio</span>
+          <strong>{averageYield}%</strong>
+          <p>
+            Merma registrada {formatQty(totalSpoilage)} u / {currency(totalSpoilageCost)}
+          </p>
+        </div>
+        <b className={criticalCount ? styles.bad : styles.good}>
+          {criticalCount ? `${criticalCount} critico(s)` : "Control sano"}
+        </b>
+      </div>
+
+      <div className={styles.yieldActions}>
+        <button type="button" onClick={onOpenSpoilage}>
+          Registrar merma
+        </button>
+        <button type="button" onClick={onOpenRecipes}>
+          Ajustar receta
+        </button>
+      </div>
+
+      <div className={styles.yieldRows}>
+        {visibleMetrics.length ? (
+          visibleMetrics.map((metric) => (
+            <article className={styles.yieldRow} key={metric.item}>
+              <div className={styles.yieldRowTop}>
+                <div>
+                  <strong>{metric.item}</strong>
+                  <span>
+                    Uso receta {formatQty(metric.theoreticalUsed)} {metric.unit} / merma {formatQty(metric.spoilageQty)} {metric.unit}
+                  </span>
+                </div>
+                <b className={yieldStatusClass(metric.status)}>{yieldStatusLabel(metric.status)}</b>
+              </div>
+              <div className={styles.yieldBar} aria-label={`Rendimiento ${metric.item} ${metric.yieldRate}%`}>
+                <i style={{ width: `${Math.max(4, Math.min(100, metric.yieldRate))}%` }} />
+              </div>
+              <div className={styles.yieldRowBottom}>
+                <span>
+                  Rinde {metric.yieldRate}% / merma {metric.spoilageRate}%
+                </span>
+                <strong>{currency(metric.spoilageCost)}</strong>
+              </div>
+              <p>{metric.note}</p>
+            </article>
+          ))
+        ) : (
+          <div className={styles.emptyState}>Sin consumo o decomisos para medir rendimiento todavia.</div>
+        )}
+      </div>
+    </div>
   );
 }
 

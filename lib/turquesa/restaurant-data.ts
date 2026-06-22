@@ -79,6 +79,24 @@ export type TurquesaSpoilageEvent = {
   createdAt: string;
 };
 
+export type TurquesaMaterialYieldStatus = "ok" | "vigilar" | "critico";
+
+export type TurquesaMaterialYieldMetric = {
+  item: string;
+  unit: string;
+  theoreticalUsed: number;
+  spoilageQty: number;
+  totalOut: number;
+  yieldRate: number;
+  spoilageRate: number;
+  spoilageCost: number;
+  onHand: number;
+  avgCost: number;
+  recipeLinks: number;
+  status: TurquesaMaterialYieldStatus;
+  note: string;
+};
+
 export type TurquesaRecipeIngredient = {
   id: string;
   menuItem: string;
@@ -164,6 +182,7 @@ export type TurquesaSnapshot = {
   purchaseRequests: TurquesaPurchaseRequest[];
   operatingExpenses: TurquesaOperatingExpense[];
   spoilageEvents: TurquesaSpoilageEvent[];
+  materialYieldMetrics: TurquesaMaterialYieldMetric[];
   wifiLeads: TurquesaWifiLead[];
 };
 
@@ -296,6 +315,68 @@ export const TURQUESA_DEMO_SNAPSHOT: TurquesaSnapshot = {
       createdAt: "2026-06-21T19:15:00.000Z",
     },
   ],
+  materialYieldMetrics: [
+    {
+      item: "Langosta",
+      unit: "lb",
+      theoreticalUsed: 4.1,
+      spoilageQty: 1.5,
+      totalOut: 5.6,
+      yieldRate: 73,
+      spoilageRate: 27,
+      spoilageCost: 675,
+      onHand: 9,
+      avgCost: 450,
+      recipeLinks: 2,
+      status: "critico",
+      note: "Merma alta. Revisar frio, porcion y limpieza antes del servicio.",
+    },
+    {
+      item: "Pescado fresco",
+      unit: "lb",
+      theoreticalUsed: 6.25,
+      spoilageQty: 0.6,
+      totalOut: 6.85,
+      yieldRate: 91,
+      spoilageRate: 9,
+      spoilageCost: 126,
+      onHand: 28,
+      avgCost: 210,
+      recipeLinks: 3,
+      status: "vigilar",
+      note: "Rendimiento aceptable con merma controlada.",
+    },
+    {
+      item: "Chinola",
+      unit: "lb",
+      theoreticalUsed: 3.2,
+      spoilageQty: 0.35,
+      totalOut: 3.55,
+      yieldRate: 90,
+      spoilageRate: 10,
+      spoilageCost: 58,
+      onHand: 14,
+      avgCost: 167,
+      recipeLinks: 3,
+      status: "vigilar",
+      note: "Controlar pulpa usada en bar y jugos.",
+    },
+    {
+      item: "Ron blanco",
+      unit: "bot",
+      theoreticalUsed: 0.5,
+      spoilageQty: 0.02,
+      totalOut: 0.52,
+      yieldRate: 96,
+      spoilageRate: 4,
+      spoilageCost: 16,
+      onHand: 11,
+      avgCost: 820,
+      recipeLinks: 2,
+      status: "ok",
+      note: "Rendimiento sano para bebidas.",
+    },
+  ],
   wifiLeads: [
     { name: "Ana M.", time: "6:42 PM", source: "Wi-Fi", status: "nuevo" },
     { name: "Jean P.", time: "7:04 PM", source: "Wi-Fi", status: "promocion" },
@@ -320,6 +401,7 @@ export function freshDemoSnapshot(message = TURQUESA_DEMO_SNAPSHOT.message): Tur
     })),
     operatingExpenses: TURQUESA_DEMO_SNAPSHOT.operatingExpenses.map((item) => ({ ...item })),
     spoilageEvents: TURQUESA_DEMO_SNAPSHOT.spoilageEvents.map((item) => ({ ...item })),
+    materialYieldMetrics: TURQUESA_DEMO_SNAPSHOT.materialYieldMetrics.map((item) => ({ ...item })),
     wifiLeads: TURQUESA_DEMO_SNAPSHOT.wifiLeads.map((item) => ({ ...item })),
   };
 }

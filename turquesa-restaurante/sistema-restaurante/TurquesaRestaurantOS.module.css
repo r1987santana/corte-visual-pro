@@ -2329,6 +2329,130 @@
   font-weight: 950;
 }
 
+.yieldPanel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.yieldHero {
+  min-height: 104px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f6fbfa, #ffffff);
+  padding: 14px;
+}
+
+.yieldHero span,
+.yieldRowTop span,
+.yieldRowBottom span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.yieldHero strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--charcoal);
+  font-size: 32px;
+  line-height: 1;
+}
+
+.yieldHero p,
+.yieldRow p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.yieldHero b,
+.yieldRowTop b {
+  border-radius: 999px;
+  padding: 7px 9px;
+  font-size: 10px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.yieldActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.yieldActions button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--charcoal);
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.yieldActions button:first-child {
+  border-color: var(--teal);
+  background: var(--teal);
+  color: #ffffff;
+}
+
+.yieldRows {
+  display: grid;
+  gap: 9px;
+}
+
+.yieldRow {
+  display: grid;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 11px;
+}
+
+.yieldRowTop,
+.yieldRowBottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.yieldRowTop strong {
+  display: block;
+  color: var(--charcoal);
+  font-size: 13px;
+}
+
+.yieldBar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf3f1;
+}
+
+.yieldBar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--teal), #49c8bd);
+}
+
+.yieldRowBottom strong {
+  color: var(--charcoal);
+  font-size: 12px;
+  font-weight: 950;
+}
+
 .quickForm button {
   min-height: 40px;
   border: 1px solid var(--teal);

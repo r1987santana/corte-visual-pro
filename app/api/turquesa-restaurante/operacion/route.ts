@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { getServiceSupabase, requireApiSession } from "@/lib/security/api-guard";
 import { isTrustedLocalRequest } from "@/lib/security/local-session";
 import {
+  TurquesaInventoryItem,
   TurquesaInventoryTrend,
   TurquesaKitchenTicket,
+  TurquesaMaterialYieldMetric,
   TurquesaOrderItem,
   TurquesaOperatingExpense,
   TurquesaPurchaseRequest,
@@ -342,6 +344,120 @@ function uiInventoryTrend(onHand: number, minimum: number, reorder: number): Tur
   return "ok";
 }
 
+function materialYieldNote(spoilageRate: number, spoilageQty: number) {
+  if (spoilageRate >= 12) return "Merma alta. Revisar frio, porcion, limpieza y preparacion.";
+  if (spoilageRate >= 5 || spoilageQty > 0) return "Merma presente. Mantener seguimiento por turno.";
+  return "Rendimiento sano contra recetas y decomisos.";
+}
+
+function materialYieldStatus(spoilageRate: number, spoilageCost: number) {
+  if (spoilageRate >= 12 || spoilageCost >= 1200) return "critico" as const;
+  if (spoilageRate >= 5 || spoilageCost > 0) return "vigilar" as const;
+  return "ok" as const;
+}
+
+function buildMaterialYieldMetrics(
+  inventory: TurquesaInventoryItem[],
+  recipeIngredients: TurquesaRecipeIngredient[],
+  consumptionEvents: any[],
+  spoilageEvents: any[]
+): TurquesaMaterialYieldMetric[] {
+  const metrics = new Map<string, TurquesaMaterialYieldMetric>();
+  const recipesByIngredient = new Map<string, number>();
+
+  recipeIngredients.forEach((recipe) => {
+    recipesByIngredient.set(recipe.ingredient, (recipesByIngredient.get(recipe.ingredient) || 0) + 1);
+  });
+
+  inventory.forEach((item) => {
+    metrics.set(item.item, {
+      item: item.item,
+      unit: item.unit,
+      theoreticalUsed: 0,
+      spoilageQty: 0,
+      totalOut: 0,
+      yieldRate: 100,
+      spoilageRate: 0,
+      spoilageCost: 0,
+      onHand: item.onHand,
+      avgCost: item.avgCost,
+      recipeLinks: recipesByIngredient.get(item.item) || 0,
+      status: "ok",
+      note: "Rendimiento sano contra recetas y decomisos.",
+    });
+  });
+
+  const addUsage = (itemName: string, qty: number, unit: string, cost: number, source: "recipe" | "spoilage") => {
+    if (!itemName || qty <= 0) return;
+    const current =
+      metrics.get(itemName) ||
+      ({
+        item: itemName,
+        unit: unit || "u",
+        theoreticalUsed: 0,
+        spoilageQty: 0,
+        totalOut: 0,
+        yieldRate: 100,
+        spoilageRate: 0,
+        spoilageCost: 0,
+        onHand: 0,
+        avgCost: 0,
+        recipeLinks: recipesByIngredient.get(itemName) || 0,
+        status: "ok",
+        note: "Rendimiento sano contra recetas y decomisos.",
+      } satisfies TurquesaMaterialYieldMetric);
+
+    if (source === "recipe") {
+      current.theoreticalUsed = quantity(current.theoreticalUsed + qty);
+    } else {
+      current.spoilageQty = quantity(current.spoilageQty + qty);
+      current.spoilageCost = money(current.spoilageCost + cost);
+    }
+    if (!current.unit && unit) current.unit = unit;
+    metrics.set(itemName, current);
+  };
+
+  (consumptionEvents || []).forEach((event) => {
+    const payload = event.payload || {};
+    (payload.consumed_items || []).forEach((line: any) => {
+      addUsage(clean(line.item_name), quantity(line.consumed_quantity), clean(line.unit), 0, "recipe");
+    });
+  });
+
+  (spoilageEvents || []).forEach((event) => {
+    const payload = event.payload || {};
+    const affected = Array.isArray(payload.affected_items) ? payload.affected_items : [];
+    if (affected.length) {
+      affected.forEach((line: any) => {
+        addUsage(clean(line.item_name), quantity(line.quantity), clean(line.unit), money(line.cost), "spoilage");
+      });
+      return;
+    }
+    if (normalizeSpoilageSourceType(payload.source_type) === "inventory") {
+      addUsage(clean(payload.item_name), quantity(payload.quantity), clean(payload.unit), money(payload.total_cost), "spoilage");
+    }
+  });
+
+  return Array.from(metrics.values())
+    .map((metric) => {
+      const totalOut = quantity(metric.theoreticalUsed + metric.spoilageQty);
+      const spoilageRate = totalOut ? Math.round((metric.spoilageQty / totalOut) * 100) : 0;
+      const yieldRate = totalOut ? Math.max(0, 100 - spoilageRate) : 100;
+      return {
+        ...metric,
+        totalOut,
+        yieldRate,
+        spoilageRate,
+        status: materialYieldStatus(spoilageRate, metric.spoilageCost),
+        note: materialYieldNote(spoilageRate, metric.spoilageQty),
+      };
+    })
+    .sort((a, b) => {
+      const severity = { critico: 2, vigilar: 1, ok: 0 };
+      return severity[b.status] - severity[a.status] || b.spoilageCost - a.spoilageCost || b.totalOut - a.totalOut;
+    });
+}
+
 async function getDbContext(request: Request): Promise<DbContext | Response> {
   const session = await requireApiSession(request, ["dashboard_ceo", "ventas"]);
   if (session.ok) {
@@ -409,6 +525,7 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
     recipeIngredientsResult,
     purchaseRequestsResult,
     operatingExpensesResult,
+    consumptionEventsResult,
     spoilageEventsResult,
     leadsResult,
   ] = await Promise.all([
@@ -471,6 +588,13 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
       : Promise.resolve({ data: [], error: null }),
     supabase
       .from("turquesa_events")
+      .select("id,payload,created_at")
+      .eq("restaurant_id", restaurant.id)
+      .eq("event_type", "inventory_consumed_by_ticket")
+      .order("created_at", { ascending: false })
+      .limit(80),
+    supabase
+      .from("turquesa_events")
       .select("id,description,payload,actor_email,created_at")
       .eq("restaurant_id", restaurant.id)
       .eq("event_type", "inventory_spoilage_recorded")
@@ -493,6 +617,7 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
     recipeIngredientsResult,
     purchaseRequestsResult,
     operatingExpensesResult,
+    consumptionEventsResult,
     spoilageEventsResult,
     leadsResult,
   ]) {
@@ -613,6 +738,34 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
       createdAt: event.created_at || new Date().toISOString(),
     };
   });
+  const inventoryItems: TurquesaInventoryItem[] = (inventoryResult.data || []).map((item: any) => {
+    const onHand = num(item.on_hand);
+    const min = num(item.minimum_stock);
+    const reorder = num(item.reorder_stock);
+    return {
+      item: item.item_name,
+      onHand,
+      unit: item.unit,
+      min,
+      trend: uiInventoryTrend(onHand, min, reorder),
+      avgCost: num(item.avg_cost),
+      supplier: item.supplier || "Proveedor por definir",
+    };
+  });
+  const recipeIngredientItems: TurquesaRecipeIngredient[] = ((recipeIngredientsResult.data || []) as any[]).map((item) => ({
+    id: item.id,
+    menuItem: menuById.get(item.menu_item_id)?.name || "Menu",
+    ingredient: inventoryById.get(item.inventory_item_id)?.item_name || "Insumo",
+    qty: num(item.quantity),
+    unit: item.unit || inventoryById.get(item.inventory_item_id)?.unit || "u",
+    note: item.yield_note || "",
+  }));
+  const materialYieldMetrics = buildMaterialYieldMetrics(
+    inventoryItems,
+    recipeIngredientItems,
+    (consumptionEventsResult.data || []) as any[],
+    (spoilageEventsResult.data || []) as any[]
+  );
 
   return {
     source: "database",
@@ -666,28 +819,8 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
       email: item.email || "",
       createdAt: item.created_at || item.reservation_at,
     })),
-    inventory: (inventoryResult.data || []).map((item: any) => {
-      const onHand = num(item.on_hand);
-      const min = num(item.minimum_stock);
-      const reorder = num(item.reorder_stock);
-      return {
-        item: item.item_name,
-        onHand,
-        unit: item.unit,
-        min,
-        trend: uiInventoryTrend(onHand, min, reorder),
-        avgCost: num(item.avg_cost),
-        supplier: item.supplier || "Proveedor por definir",
-      };
-    }),
-    recipeIngredients: ((recipeIngredientsResult.data || []) as any[]).map((item): TurquesaRecipeIngredient => ({
-      id: item.id,
-      menuItem: menuById.get(item.menu_item_id)?.name || "Menu",
-      ingredient: inventoryById.get(item.inventory_item_id)?.item_name || "Insumo",
-      qty: num(item.quantity),
-      unit: item.unit || inventoryById.get(item.inventory_item_id)?.unit || "u",
-      note: item.yield_note || "",
-    })),
+    inventory: inventoryItems,
+    recipeIngredients: recipeIngredientItems,
     purchaseRequests: ((purchaseRequestsResult.data || []) as any[]).map((request): TurquesaPurchaseRequest => ({
       id: request.id,
       code: request.request_code,
@@ -705,6 +838,7 @@ async function readSnapshot(supabase: any): Promise<TurquesaSnapshot> {
     })),
     operatingExpenses,
     spoilageEvents,
+    materialYieldMetrics,
     wifiLeads: (leadsResult.data || []).map((lead: any) => ({
       name: lead.full_name,
       time: timeLabel(lead.last_seen_at),
